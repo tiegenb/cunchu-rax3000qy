@@ -1,13 +1,38 @@
-# 1. 清理 kernel-headers
-cd /workdir/openwrt
-rm -rf build_dir/target-*/linux-*/linux-*
-rm -rf dl/linux-*
+name: 查找固件
 
-# 2. 手动下载并验证
-make toolchain/kernel-headers/download -j1 V=s
+on:
+  workflow_dispatch:
 
-# 3. 检查下载的文件
-ls -la dl/linux-*.tar.xz
+env:
+  REPO_URL: https://github.com/everything411/qsdk
+  REPO_BRANCH: 12.5.2783.2994
+  CONFIG_FILE: cmcc_rax3000qy.config
 
-# 4. 手动解压测试
-tar -tf dl/linux-*.tar.xz | head -20
+jobs:
+  check:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.REPO_URL }}
+          ref: ${{ env.REPO_BRANCH }}
+          path: openwrt
+
+      - name: 清理kernel-headers
+        working-directory: openwrt
+        run: |
+          rm -rf build_dir/target-*/linux-*/linux-* 2>/dev/null || true
+          rm -rf dl/linux-* 2>/dev/null || true
+          echo "✅ 清理完成"
+
+      - name: 下载kernel-headers
+        working-directory: openwrt
+        run: |
+          make toolchain/kernel-headers/download -j1 V=s
+
+      - name: 列出dl目录
+        working-directory: openwrt
+        run: |
+          echo "=== dl/ 目录内容 ==="
+          ls -la dl/ | grep -E "linux|kernel" || echo "未找到内核相关文件"
