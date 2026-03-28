@@ -1,0 +1,13 @@
+# 1. 清理 kernel-headers
+cd /workdir/openwrt
+rm -rf build_dir/target-*/linux-*/linux-*
+rm -rf dl/linux-*
+
+# 2. 手动下载并验证
+make toolchain/kernel-headers/download -j1 V=s
+
+# 3. 检查下载的文件
+ls -la dl/linux-*.tar.xz
+
+# 4. 手动解压测试
+tar -tf dl/linux-*.tar.xz | head -20
