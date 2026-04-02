@@ -1,4 +1,4 @@
-name: 构建 OpenWrt (自定义内核)
+name: 构建 OpenWrt (自定义内核 - Git方案)
 
 on:
   repository_dispatch:
@@ -79,14 +79,30 @@ jobs:
         git clone $REPO_URL -b $REPO_BRANCH openwrt
         ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
 
-    # ========== 新增：克隆自定义内核源码 ==========
+    # ========== 方案1：克隆自定义内核源码（增加缓冲区 + 浅克隆） ==========
     - name: 克隆自定义内核源码
       run: |
         cd /workdir
         echo "克隆内核源码: https://git.codelinaro.org/clo/qsdk/oss/kernel/linux-ipq-5.4.git"
-        git clone https://git.codelinaro.org/clo/qsdk/oss/kernel/linux-ipq-5.4.git kernel-source
+        
+        # 增加 Git 缓冲区大小到 500MB
+        git config --global http.postBuffer 524288000
+        git config --global https.postBuffer 524288000
+        
+        # 使用浅克隆减少数据量
+        echo "执行浅克隆（depth=1）..."
+        git clone --depth 1 https://git.codelinaro.org/clo/qsdk/oss/kernel/linux-ipq-5.4.git kernel-source
+        
         cd kernel-source
+        
+        # 获取完整的提交历史以切换到指定提交
+        echo "获取完整提交历史..."
+        git fetch --unshallow
+        
+        # 切换到指定的提交
+        echo "切换到提交: d5fcb18e5420670c8734c6a659873e73adab6dac"
         git checkout d5fcb18e5420670c8734c6a659873e73adab6dac
+        
         echo "内核版本: $(git log -1 --format='%h %s')"
         cd ..
         
@@ -186,18 +202,25 @@ jobs:
         TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
 
-    # ========== 修改：注释掉原有的内核下载，改为验证本地内核包 ==========
-    - name: 验证内核源码包
+    # ========== 下载 backports（使用 Dropbox，因为 Git 需要授权） ==========
+    - name: 下载 backports
       run: |
         cd openwrt
-        echo "检查 dl 目录中的内核源码包:"
-        ls -lh dl/linux-*.tar.xz || echo "警告: 未找到内核源码包"
+        mkdir -p dl
         
-        # 如果存在旧的内核下载步骤，这里不再需要
-        # 原有的 wget 下载 backports 仍然保留（因为 backports Git 需要授权）
         if [ ! -f "dl/backports-20210222-5.4-qsdk-11.5.0.5.tar.xz" ]; then
           echo "下载 backports 从 Dropbox..."
           wget "https://www.dropbox.com/scl/fi/9ts30p2csnlb9imaf8k68/backports-20210222-5.4-qsdk-11.5.0.5.tar.xz?rlkey=sntbyfjgg86gu2uoocgb9ggp1&st=7w81hl56&dl=1" -O dl/backports-20210222-5.4-qsdk-11.5.0.5.tar.xz
+        else
+          echo "backports 包已存在"
+        fi
+        
+        # 验证内核源码包是否存在
+        if [ -f "dl/linux-5.4-qsdk-11.5.0.5.tar.xz" ]; then
+          echo "内核源码包已就绪: $(ls -lh dl/linux-5.4-qsdk-11.5.0.5.tar.xz)"
+        else
+          echo "错误: 内核源码包不存在！"
+          exit 1
         fi
 
     - name: 下载软件包
