@@ -1,17 +1,18 @@
 #!/bin/bash
-#
-# Copyright (c) 2019-2020 P3TERX <https://p3terx.com>
-#
-# This is free software, licensed under the MIT License.
-# See /LICENSE for more information.
-#
-# https://github.com/P3TERX/Actions-OpenWrt
-# File name: diy-part1.sh
-# Description: OpenWrt DIY script part 1 (Before Update feeds)
-#
+# diy-part1.sh
 
-# Uncomment a feed source
-#sed -i 's/^#\(.*helloworld\)/\1/' feeds.conf.default
+# 1. 禁用不需要的包
+echo "Disabling unnecessary packages..."
+for pkg in watchcat wol vlmcsd frpc NATMap xlnetacc; do
+    ./scripts/config --disable PACKAGE_${pkg}
+    echo "  - Disabled PACKAGE_${pkg}"
+done
 
-# Add a feed source
-#sed -i '$a src-git lienol https://github.com/Lienol/openwrt-package' feeds.conf.default
+# 2. 确保 iptables 启用
+./scripts/config --enable PACKAGE_iptables
+echo "  - Enabled PACKAGE_iptables"
+
+# 3. 可选：添加第三方包源
+# sed -i '$a src-git mypackages https://github.com/xxx/xxx' feeds.conf.default
+
+echo "diy-part1.sh completed"
