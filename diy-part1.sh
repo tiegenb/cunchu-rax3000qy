@@ -151,13 +151,20 @@ if [ -f "./scripts/config" ]; then
 fi
 
 # ============================================
-# 3. 禁用不需要的包
+# 3. 禁用不需要的包（包括 frp）
 # ============================================
 echo ""
 echo "3. Disabling unnecessary packages..."
 
 if [ -f "./scripts/config" ]; then
-    for pkg in watchcat wol vlmcsd frpc NATMap xlnetacc; do
+    # 禁用 frp 及其相关包（避免 quic-go 编译错误）
+    for pkg in frp frpc frps luci-app-frp; do
+        ./scripts/config --disable PACKAGE_${pkg} 2>/dev/null
+        echo "   ✓ Disabled PACKAGE_${pkg}"
+    done
+    
+    # 禁用其他不需要的包
+    for pkg in watchcat wol vlmcsd NATMap xlnetacc; do
         ./scripts/config --disable PACKAGE_${pkg} 2>/dev/null
         echo "   ✓ Disabled PACKAGE_${pkg}"
     done
@@ -223,6 +230,7 @@ echo "✅ WPA3 (SAE) support"
 echo "✅ 802.11n/ac/ax support"
 echo "✅ CPU frequency scaling"
 echo "✅ iptables firewall"
+echo "❌ frp/frpc/frps (disabled - quic-go compatibility)"
 echo "=========================================="
 echo "diy-part1.sh completed successfully!"
 echo "=========================================="
