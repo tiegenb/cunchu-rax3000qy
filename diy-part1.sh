@@ -6,57 +6,61 @@ echo "Starting diy-part1.sh modifications..."
 echo "=========================================="
 
 # ============================================
-# 0. 强制禁用所有 wpad 变体（避免冲突）
+# 0. 禁用其他 wpad 变体（保留 wpad-basic-wolfssl）
 # ============================================
 echo ""
-echo "0. Force disabling all wpad variants (avoid conflict)..."
+echo "0. Disabling conflicting wpad variants..."
 
 if [ -f "./scripts/config" ]; then
-    # 禁用所有可能的 wpad 变体
-    for wpad_var in wpad wpad-basic wpad-basic-openssl wpad-basic-wolfssl \
+    # 禁用其他 wpad 变体（但不禁用 wpad-basic-wolfssl）
+    for wpad_var in wpad wpad-basic wpad-basic-openssl \
                      wpad-mesh-openssl wpad-mesh-wolfssl wpad-mini \
                      wpad-openssl wpad-wolfssl; do
         ./scripts/config --disable PACKAGE_${wpad_var} 2>/dev/null
     done
     
-    # 同时禁用 wpa-supplicant（如果有冲突）
+    # 禁用 hostapd（wpad 会包含它）
+    ./scripts/config --disable PACKAGE_hostapd 2>/dev/null
+    ./scripts/config --disable PACKAGE_hostapd-wolfssl 2>/dev/null
+    
+    # 禁用 wpa-supplicant（wpad 会包含它）
     for wpa_var in wpa-supplicant wpa-supplicant-basic wpa-supplicant-mini \
                    wpa-supplicant-openssl wpa-supplicant-wolfssl; do
         ./scripts/config --disable PACKAGE_${wpa_var} 2>/dev/null
     done
     
-    echo "   ✓ Disabled all wpad/wpa-supplicant variants"
+    echo "   ✓ Disabled conflicting hostapd/wpa-supplicant variants"
 fi
 
 # ============================================
-# 1. 配置 hostapd（完整热点服务）
+# 1. 配置 wpad-basic-wolfssl（AP + 客户端双模式）
 # ============================================
 echo ""
-echo "1. Configuring hostapd (完整热点服务)..."
+echo "1. Configuring wpad-basic-wolfssl (AP + Client dual mode)..."
 
-# 方法1: 直接修改 .config 文件
+# 直接修改 .config 文件
 cat >> .config << 'EOF'
 
-# ========== hostapd 配置 ==========
-# 启用 hostapd（wolfssl 版本 - 省空间）
-CONFIG_PACKAGE_hostapd-wolfssl=y
+# ========== wpad 配置（双模式：AP + 客户端） ==========
+# 启用 wpad-basic-wolfssl（包含 hostapd + wpa-supplicant）
+CONFIG_PACKAGE_wpad-basic-wolfssl=y
 
-# 强制禁用所有 wpad 变体（多重保障）
+# 确保其他 wpad 变体被禁用
 # CONFIG_PACKAGE_wpad is not set
 # CONFIG_PACKAGE_wpad-basic is not set
 # CONFIG_PACKAGE_wpad-basic-openssl is not set
-CONFIG_PACKAGE_wpad-basic-wolfssl=n
 # CONFIG_PACKAGE_wpad-mesh-openssl is not set
 # CONFIG_PACKAGE_wpad-mesh-wolfssl is not set
 # CONFIG_PACKAGE_wpad-mini is not set
 # CONFIG_PACKAGE_wpad-openssl is not set
 # CONFIG_PACKAGE_wpad-wolfssl is not set
 
-# 强制禁用 wpa-supplicant（避免冲突）
+# 禁用独立的 hostapd（被 wpad 包含）
+# CONFIG_PACKAGE_hostapd is not set
+# CONFIG_PACKAGE_hostapd-wolfssl is not set
+
+# 禁用独立的 wpa-supplicant（被 wpad 包含）
 # CONFIG_PACKAGE_wpa-supplicant is not set
-# CONFIG_PACKAGE_wpa-supplicant-basic is not set
-# CONFIG_PACKAGE_wpa-supplicant-mini is not set
-# CONFIG_PACKAGE_wpa-supplicant-openssl is not set
 # CONFIG_PACKAGE_wpa-supplicant-wolfssl is not set
 
 # 启用 802.11 标准支持
@@ -69,16 +73,19 @@ CONFIG_WPA_MBO_SUPPORT=y
 CONFIG_WPA_SAE_SUPPORT=y
 EOF
 
-echo "   ✓ Added hostapd-wolfssl configuration"
-echo "   ✓ Explicitly disabled wpad-basic-wolfssl (conflict avoided)"
+echo "   ✓ Enabled wpad-basic-wolfssl (AP + Client support)"
+echo "   ✓ Disabled hostapd-wolfssl (included in wpad)"
+echo "   ✓ WPA3/SAE/MBO support enabled"
 
-# 创建 hostapd 自定义配置文件（裁剪功能，节省空间）
-mkdir -p package/network/services/hostapd/files
+# 创建 wpad 自定义配置文件（裁剪功能，节省空间）
+mkdir -p package/network/services/wpad/files
 
-cat > package/network/services/hostapd/files/hostapd-custom.conf << 'EOF'
-# hostapd 自定义编译配置
+cat > package/network/services/wpad/files/wpad-custom.conf << 'EOF'
+# wpad 自定义编译配置
+# wpad-basic-wolfssl 包含 hostapd + wpa-supplicant
 # 只保留需要的功能，禁用不需要的以节省空间
 
+# ========== hostapd 部分（AP 功能） ==========
 # 驱动支持
 CONFIG_DRIVER_NL80211=y
 
@@ -113,36 +120,33 @@ CONFIG_OWE=y          # 增强型开放网络
 # 禁用 WEP（已不安全，省 ~20KB）
 # CONFIG_WEP is not set
 
-# 禁用不常用的 802.11 扩展（省 ~30KB）
-# CONFIG_HS20 is not set      # Hotspot 2.0
-# CONFIG_INTERWORKING is not set
-# CONFIG_MBO is not set        # 多频段操作
-# CONFIG_RRM is not set        # 无线资源管理
+# ========== wpa-supplicant 部分（客户端功能） ==========
+# 保持基础客户端功能可用
+# 禁用不常用的扩展
+# CONFIG_IBSS_RSN is not set
+# CONFIG_MATCH_IFACE is not set
 EOF
 
-echo "   ✓ Created hostapd custom config (optimized for size)"
+echo "   ✓ Created wpad custom config (optimized for size)"
 
 # ============================================
-# 2. 验证冲突已解决
+# 2. 验证配置
 # ============================================
 echo ""
 echo "2. Verifying configuration..."
 
 if [ -f "./scripts/config" ]; then
     # 检查 wpad-basic-wolfssl 状态
-    if ./scripts/config --state PACKAGE_wpad-basic-wolfssl 2>/dev/null | grep -q "n"; then
-        echo "   ✅ wpad-basic-wolfssl is disabled"
+    if ./scripts/config --state PACKAGE_wpad-basic-wolfssl 2>/dev/null | grep -q "y"; then
+        echo "   ✅ wpad-basic-wolfssl is enabled (AP + Client)"
     else
-        echo "   ⚠ WARNING: wpad-basic-wolfssl may still be enabled"
-        # 强制再次禁用
-        ./scripts/config --disable PACKAGE_wpad-basic-wolfssl
+        echo "   ⚠ WARNING: wpad-basic-wolfssl not enabled, forcing..."
+        ./scripts/config --enable PACKAGE_wpad-basic-wolfssl
     fi
     
-    # 检查 hostapd 状态
-    if ./scripts/config --state PACKAGE_hostapd-wolfssl 2>/dev/null | grep -q "y"; then
-        echo "   ✅ hostapd-wolfssl is enabled"
-    else
-        echo "   ⚠ WARNING: hostapd-wolfssl not enabled"
+    # 检查 hostapd 状态（应该被禁用）
+    if ./scripts/config --state PACKAGE_hostapd-wolfssl 2>/dev/null | grep -q "n"; then
+        echo "   ✅ hostapd-wolfssl is disabled (included in wpad)"
     fi
 fi
 
@@ -212,12 +216,13 @@ echo ""
 echo "=========================================="
 echo "Configuration Summary:"
 echo "=========================================="
-echo "✅ hostapd-wolfssl (完整热点服务)"
+echo "✅ wpad-basic-wolfssl (AP + Client dual mode)"
+echo "   - hostapd included (AP / hotspot)"
+echo "   - wpa-supplicant included (client / connect to WiFi)"
 echo "✅ WPA3 (SAE) support"
 echo "✅ 802.11n/ac/ax support"
 echo "✅ CPU frequency scaling"
 echo "✅ iptables firewall"
-echo "❌ wpad-basic-wolfssl (disabled - conflict resolved)"
 echo "=========================================="
 echo "diy-part1.sh completed successfully!"
 echo "=========================================="
