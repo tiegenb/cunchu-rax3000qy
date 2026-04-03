@@ -20,16 +20,16 @@ config wifi-device 'radio0'
         option hwmode '11ax'
         option path 'platform/soc/c000000.wifi'
         option channel 'auto'
-        option htmode 'HE20'
+        option htmode 'HE40'
         option country 'CN'
-        option txpower '18'
+        option txpower '16'
         option disabled '0'
 
 config wifi-iface 'default_radio0'
         option device 'radio0'
         option network 'lan'
         option mode 'ap'
-        option ssid 'ImmortalWrt'
+        option ssid '铁哥中继器_2.4G'
         option encryption 'none'
 
 config wifi-device 'radio1'
@@ -39,17 +39,17 @@ config wifi-device 'radio1'
         option channel 'auto'
         option htmode 'HE80'
         option country 'CN'
-        option txpower '20'
+        option txpower '27'
         option disabled '0'
 
 config wifi-iface 'default_radio1'
         option device 'radio1'
         option network 'lan'
         option mode 'ap'
-        option ssid 'ImmortalWrt-5G'
+        option ssid '铁哥中继器_5G'
         option encryption 'none'
 EOF
-    echo "   ✓ Created wireless config with 2.4G:18dBm, 5G:20dBm"
+    echo "   ✓ Created wireless config with 2.4G:16dBm, 5G:27dBm"
 else
     echo "   ⚠ Wireless config already exists, skipping..."
 fi
