@@ -106,11 +106,12 @@ jobs:
     - name: 更新 feeds
       run: cd openwrt && ./scripts/feeds update -a
 
-    - name: 修复 golang 版本
-      run: |
-        cd openwrt
-        rm -rf feeds/packages/lang/golang
-        git clone https://github.com/kenzok8/golang -b 1.25 feeds/packages/lang/golang
+    # 注释掉自定义 Go 版本，使用默认版本避免 quic-go 兼容性问题
+    # - name: 修复 golang 版本
+    #   run: |
+    #     cd openwrt
+    #     rm -rf feeds/packages/lang/golang
+    #     git clone https://github.com/kenzok8/golang -b 1.25 feeds/packages/lang/golang
 
     - name: 安装 feeds
       run: cd openwrt && ./scripts/feeds install -a
@@ -133,38 +134,30 @@ jobs:
         cd openwrt
         $GITHUB_WORKSPACE/$DIY_P2_SH
 
-    - name: 检查配置冲突（hostapd vs wpad）
+    # 修改后的配置检查步骤（不再强制禁用 wpad）
+    - name: 检查配置状态
       run: |
         cd openwrt
         echo "=========================================="
-        echo "检查 hostapd 和 wpad 配置冲突..."
+        echo "检查配置状态..."
         echo "=========================================="
         
-        # 检查 .config 文件中的冲突
-        if grep -q "CONFIG_PACKAGE_hostapd" .config && grep -q "CONFIG_PACKAGE_wpad" .config; then
-            echo "⚠ 警告：检测到 hostapd 和 wpad 可能同时启用"
-            echo "hostapd 状态:"
-            grep "CONFIG_PACKAGE_hostapd" .config || echo "  未找到"
-            echo "wpad 状态:"
-            grep "CONFIG_PACKAGE_wpad" .config || echo "  未找到"
-            
-            # 强制禁用 wpad
-            echo "正在强制禁用 wpad..."
-            sed -i 's/^CONFIG_PACKAGE_wpad.*/# CONFIG_PACKAGE_wpad is not set/g' .config
-            sed -i 's/^CONFIG_PACKAGE_wpad-basic.*/# CONFIG_PACKAGE_wpad-basic is not set/g' .config
-            sed -i 's/^CONFIG_PACKAGE_wpad-basic-wolfssl.*/# CONFIG_PACKAGE_wpad-basic-wolfssl is not set/g' .config
-            echo "✅ 已强制禁用 wpad 相关包"
+        # 检查无线配置
+        if grep -q "CONFIG_PACKAGE_wpad-basic-wolfssl=y" .config; then
+            echo "✅ wpad-basic-wolfssl 已启用（AP + 客户端双模式）"
+        elif grep -q "CONFIG_PACKAGE_hostapd-wolfssl=y" .config; then
+            echo "✅ hostapd-wolfssl 已启用（仅 AP 模式）"
         else
-            echo "✅ 未检测到明显冲突"
+            echo "⚠️ 未检测到无线认证包"
         fi
         
-        # 验证最终状态
-        echo ""
-        echo "最终配置状态:"
-        echo "hostapd:"
-        grep "CONFIG_PACKAGE_hostapd" .config || echo "  未启用"
-        echo "wpad:"
-        grep "CONFIG_PACKAGE_wpad" .config || echo "  未启用"
+        # 检查 frp 状态
+        if grep -q "CONFIG_PACKAGE_frp=y" .config; then
+            echo "⚠️ 警告：frp 已启用（可能导致 quic-go 编译错误）"
+        else
+            echo "✅ frp 已禁用"
+        fi
+        
         echo "=========================================="
 
     - name: 检查关键功能配置
@@ -230,6 +223,7 @@ jobs:
         find dl -size -1024c -exec ls -l {} \;
         find dl -size -1024c -exec rm -f {} \;
 
+    # 修改后的编译前验证（不再强制删除 wpad）
     - name: 编译前最终验证
       run: |
         cd openwrt
@@ -243,23 +237,20 @@ jobs:
             exit 1
         fi
         
-        # 验证 hostapd 配置
-        if grep -q "CONFIG_PACKAGE_hostapd-wolfssl=y" .config; then
-            echo "✅ hostapd-wolfssl 已正确配置"
+        # 验证无线配置
+        if grep -q "CONFIG_PACKAGE_wpad-basic-wolfssl=y" .config; then
+            echo "✅ wpad-basic-wolfssl 已配置（AP + 客户端双模式）"
+        elif grep -q "CONFIG_PACKAGE_hostapd-wolfssl=y" .config; then
+            echo "✅ hostapd-wolfssl 已配置（仅 AP 模式）"
         else
-            echo "⚠ 警告：hostapd-wolfssl 未启用"
+            echo "⚠️ 警告：未检测到无线认证包"
         fi
         
-        # 最终冲突检查
-        if grep -q "^CONFIG_PACKAGE_wpad.*=y" .config; then
-            echo "❌ 错误：仍然检测到启用的 wpad 包！"
-            echo "启用的 wpad 包："
-            grep "^CONFIG_PACKAGE_wpad.*=y" .config
-            echo "尝试修复..."
-            sed -i '/^CONFIG_PACKAGE_wpad.*=y/d' .config
-            echo "✅ 已删除 wpad 配置"
+        # 验证 frp 状态
+        if grep -q "CONFIG_PACKAGE_frp=y" .config; then
+            echo "⚠️ 警告：frp 已启用，可能导致 quic-go 编译错误"
         else
-            echo "✅ 无 wpad 冲突"
+            echo "✅ frp 已禁用"
         fi
         
         echo "=========================================="
