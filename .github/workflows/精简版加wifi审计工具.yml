@@ -8,7 +8,7 @@
 # Description: Build OpenWrt using GitHub Actions
 #
 
-name: 构建 OpenWrt
+name: 构建 OpenWrt精简加入wifi审计工具
 
 on:
   repository_dispatch:
