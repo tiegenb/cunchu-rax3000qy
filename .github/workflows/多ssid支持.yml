@@ -143,11 +143,7 @@ jobs:
       run: |
         cd openwrt
         make defconfig
-        # 再次确保关键配置没有被覆盖
-        ./scripts/config --enable PACKAGE_wpad-wolfssl
-        ./scripts/config --disable PACKAGE_frp
-        ./scripts/config --disable PACKAGE_frpc
-        ./scripts/config --disable PACKAGE_frps
+        echo "✓ 配置已生成（自定义配置由 diy-part1.sh 和 diy-part2.sh 保证）"
 
     - name: 检查配置状态
       run: |
