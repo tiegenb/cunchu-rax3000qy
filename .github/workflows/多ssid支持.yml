@@ -1,4 +1,4 @@
-name: 构建 OpenWrt
+name: 构建 -多ssid加软件包精简
 
 on:
   workflow_dispatch:
