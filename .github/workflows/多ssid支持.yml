@@ -96,25 +96,20 @@ jobs:
         mixkey: 'immortalwrt21-cortexa7-vfpv4'
         prefix: ${{ github.workspace }}/openwrt
 
-    - name: 加载自定义 feeds 并更新
+    - name: 加载自定义 feeds
       run: |
         [ -e $FEEDS_CONF ] && mv $FEEDS_CONF openwrt/feeds.conf.default
-        chmod +x $DIY_P1_SH
+
+    - name: 更新 feeds
+      run: |
         cd openwrt
-        $GITHUB_WORKSPACE/$DIY_P1_SH
         ./scripts/feeds update -a
 
-    # 注释掉自定义 Go 版本，使用默认版本避免 quic-go 兼容性问题
-    # - name: 修复 golang 版本
-    #   run: |
-    #     cd openwrt
-    #     rm -rf feeds/packages/lang/golang
-    #     git clone https://github.com/kenzok8/golang -b 1.25 feeds/packages/lang/golang
-
-    - name: 安装 feeds 并升级 turboacc
+    - name: 安装 feeds
       run: |
         cd openwrt
         ./scripts/feeds install -a
+        
         # 升级 turboacc 到最新版本
         rm -rf feeds/luci/applications/luci-app-turboacc
         wget "https://www.dropbox.com/scl/fi/uccikbibj772c4sekzbk7/luci-app-turboacc.zip?rlkey=yzhkk0lfzhrthn8hbl1qt8k5j&st=31820445&dl=1" -O luci-app-turboacc.zip
@@ -122,25 +117,35 @@ jobs:
         rm -rf luci-app-turboacc.zip
         echo "✓ 已升级 turboacc 到最新版本"
 
-    - name: 加载自定义配置并检查
+    - name: 应用基础配置
       run: |
         [ -e files ] && mv files openwrt/files
         [ -e $CONFIG_FILE ] && mv $CONFIG_FILE openwrt/.config
+
+    - name: 执行 diy-part1.sh（配置无线、禁用frp等）
+      run: |
+        chmod +x $DIY_P1_SH
+        cd openwrt
+        $GITHUB_WORKSPACE/$DIY_P1_SH
+        
+    - name: 执行 diy-part2.sh（其他自定义）
+      run: |
         chmod +x $DIY_P2_SH
         cd openwrt
         $GITHUB_WORKSPACE/$DIY_P2_SH
-        
+
+    - name: 检查配置状态
+      run: |
+        cd openwrt
         echo "=========================================="
         echo "检查配置状态..."
         echo "=========================================="
         
-        # 检查无线配置（优先检查完整版）
+        # 检查无线配置
         if grep -q "CONFIG_PACKAGE_wpad-wolfssl=y" .config; then
-            echo "✅ wpad-wolfssl 已启用（完整版 - 支持多SSID、802.11r/k/v）"
+            echo "✅ wpad-wolfssl 已启用（完整版 - 支持多SSID）"
         elif grep -q "CONFIG_PACKAGE_wpad-basic-wolfssl=y" .config; then
             echo "⚠️ wpad-basic-wolfssl 已启用（精简版 - 不支持多SSID）"
-        elif grep -q "CONFIG_PACKAGE_hostapd-wolfssl=y" .config; then
-            echo "⚠️ hostapd-wolfssl 已启用（仅 AP 模式）"
         else
             echo "❌ 错误：未检测到无线认证包"
             exit 1
@@ -148,62 +153,16 @@ jobs:
         
         # 检查 frp 状态
         if grep -q "CONFIG_PACKAGE_frp=y" .config; then
-            echo "⚠️ 警告：frp 已启用（可能导致 quic-go 编译错误）"
+            echo "⚠️ 警告：frp 已启用"
         else
             echo "✅ frp 已禁用"
         fi
         
-        # 检查多SSID相关配置
+        # 检查多SSID支持
         if grep -q "CONFIG_WPA_MULTI_BSSID=y" .config; then
             echo "✅ 多SSID支持已启用"
         fi
         
-        echo "=========================================="
-        echo "检查关键功能配置..."
-        echo "=========================================="
-        
-        # 检查必需功能
-        REQUIRED_FEATURES="CONFIG_DRIVER_11N_SUPPORT CONFIG_DRIVER_11AC_SUPPORT CONFIG_DRIVER_11AX_SUPPORT"
-        MISSING=0
-        
-        for feature in $REQUIRED_FEATURES; do
-            if grep -q "^${feature}=y" .config; then
-                echo "✅ ${feature} 已启用"
-            else
-                echo "❌ ${feature} 未启用"
-                MISSING=$((MISSING+1))
-            fi
-        done
-        
-        # 检查 WPA3 支持
-        if grep -q "CONFIG_WPA_SAE_SUPPORT=y" .config; then
-            echo "✅ WPA3 (SAE) 支持已启用"
-        else
-            echo "⚠ WPA3 (SAE) 支持未启用"
-        fi
-        
-        if grep -q "CONFIG_WPA_MBO_SUPPORT=y" .config; then
-            echo "✅ WPA MBO 支持已启用"
-        else
-            echo "⚠ WPA MBO 支持未启用"
-        fi
-        
-        # 检查 802.11r/k/v 漫游支持
-        if grep -q "CONFIG_DRIVER_11R_SUPPORT=y" .config; then
-            echo "✅ 802.11r 快速漫游已启用"
-        fi
-        if grep -q "CONFIG_DRIVER_11K_SUPPORT=y" .config; then
-            echo "✅ 802.11k 无线资源管理已启用"
-        fi
-        if grep -q "CONFIG_DRIVER_11V_SUPPORT=y" .config; then
-            echo "✅ 802.11v BSS 过渡管理已启用"
-        fi
-        
-        if [ $MISSING -gt 0 ]; then
-            echo "⚠ 发现 $MISSING 个缺失的必需功能"
-        else
-            echo "✅ 所有必需功能已正确配置"
-        fi
         echo "=========================================="
 
     - name: SSH 连接至 Actions
@@ -213,56 +172,17 @@ jobs:
         TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
 
-    - name: 下载软件包并编译前验证
+    - name: 下载软件包
       run: |
         cd openwrt
         mkdir -p dl
         wget "https://www.dropbox.com/scl/fi/9ts30p2csnlb9imaf8k68/backports-20210222-5.4-qsdk-11.5.0.5.tar.xz?rlkey=sntbyfjgg86gu2uoocgb9ggp1&st=7w81hl56&dl=1" -O dl/backports-20210222-5.4-qsdk-11.5.0.5.tar.xz
         wget "https://www.dropbox.com/scl/fi/gu7ge6jmefn72ttuop1zs/linux-5.4-qsdk-11.5.0.5.tar.xz?rlkey=tdpq0ye35x290frbh7i8uqrm8&st=jjvegqrr&dl=1" -O dl/linux-5.4-qsdk-11.5.0.5.tar.xz
-        make defconfig
+        
+        # 【重要】不要运行 make defconfig，直接用现有配置
         make download -j8
         find dl -size -1024c -exec ls -l {} \;
         find dl -size -1024c -exec rm -f {} \;
-        
-        echo "=========================================="
-        echo "编译前最终验证..."
-        echo "=========================================="
-        
-        # 验证 .config 文件
-        if [ ! -f .config ]; then
-            echo "❌ 错误：.config 文件不存在！"
-            exit 1
-        fi
-        
-        # 验证无线配置（必须包含完整版）
-        if grep -q "CONFIG_PACKAGE_wpad-wolfssl=y" .config; then
-            echo "✅ wpad-wolfssl 已配置（完整版 - 支持多SSID）"
-        elif grep -q "CONFIG_PACKAGE_wpad-basic-wolfssl=y" .config; then
-            echo "⚠️ 警告：wpad-basic-wolfssl 是精简版，不支持多SSID"
-            echo "⚠️ 如需多SSID功能，请检查 diy-part1.sh 配置"
-        elif grep -q "CONFIG_PACKAGE_hostapd-wolfssl=y" .config; then
-            echo "⚠️ 警告：hostapd-wolfssl 已配置（仅 AP 模式，缺少客户端模式）"
-        else
-            echo "❌ 错误：未检测到无线认证包！"
-            exit 1
-        fi
-        
-        # 验证 frp 状态
-        if grep -q "CONFIG_PACKAGE_frp=y" .config; then
-            echo "⚠️ 警告：frp 已启用，可能导致 quic-go 编译错误"
-            echo "⚠️ 建议：在 diy-part1.sh 中禁用 frp"
-        else
-            echo "✅ frp 已禁用"
-        fi
-        
-        # 验证多SSID支持
-        if grep -q "CONFIG_WPA_MULTI_BSSID=y" .config; then
-            echo "✅ 多SSID支持已配置"
-        fi
-        
-        echo "=========================================="
-        echo "准备开始编译..."
-        echo "=========================================="
 
     - name: 编译固件
       id: compile
@@ -300,17 +220,6 @@ jobs:
         echo "=========================================="
         echo "✅ 工作流执行完成"
         echo "📦 固件位置：openwrt/bin/targets/"
-        if [ -f ../../../../.config ]; then
-            echo "🔧 使用的配置：$(grep CONFIG_TARGET_BOARD ../../../../.config | head -1)"
-            echo ""
-            echo "📡 无线配置："
-            if grep -q "CONFIG_PACKAGE_wpad-wolfssl=y" ../../../../.config; then
-                echo "   - wpad-wolfssl (完整版，支持多SSID)"
-                echo "   - 支持 802.11r/k/v 快速漫游"
-            elif grep -q "CONFIG_PACKAGE_wpad-basic-wolfssl=y" ../../../../.config; then
-                echo "   - wpad-basic-wolfssl (精简版，不支持多SSID)"
-            fi
-        fi
         echo "=========================================="
 
     - name: 上传固件目录
