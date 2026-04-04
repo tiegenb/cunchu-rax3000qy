@@ -96,9 +96,14 @@ jobs:
         mixkey: 'immortalwrt21-cortexa7-vfpv4'
         prefix: ${{ github.workspace }}/openwrt
 
-    - name: 加载自定义 feeds
+    - name: 加载自定义 feeds（可选）
       run: |
-        [ -e $FEEDS_CONF ] && mv $FEEDS_CONF openwrt/feeds.conf.default
+        if [ -f "$FEEDS_CONF" ]; then
+          mv "$FEEDS_CONF" openwrt/feeds.conf.default
+          echo "✓ 已加载自定义 feeds"
+        else
+          echo "ℹ️ 未找到 $FEEDS_CONF，使用源码默认 feeds"
+        fi
 
     - name: 更新 feeds
       run: |
@@ -134,12 +139,11 @@ jobs:
         cd openwrt
         $GITHUB_WORKSPACE/$DIY_P2_SH
 
-    - name: 生成完整配置（不覆盖自定义设置）
+    - name: 生成完整配置
       run: |
         cd openwrt
-        # 解决依赖关系，但保留我们的配置
         make defconfig
-        # 再次确保我们的关键配置没有被覆盖
+        # 再次确保关键配置没有被覆盖
         ./scripts/config --enable PACKAGE_wpad-wolfssl
         ./scripts/config --disable PACKAGE_frp
         ./scripts/config --disable PACKAGE_frpc
@@ -152,29 +156,23 @@ jobs:
         echo "检查配置状态..."
         echo "=========================================="
         
-        # 检查无线配置
         if grep -q "CONFIG_PACKAGE_wpad-wolfssl=y" .config; then
-            echo "✅ wpad-wolfssl 已启用（完整版 - 支持多SSID）"
-        elif grep -q "CONFIG_PACKAGE_wpad-basic-wolfssl=y" .config; then
-            echo "⚠️ wpad-basic-wolfssl 已启用（精简版 - 不支持多SSID）"
+            echo "✅ wpad-wolfssl 已启用"
         else
-            echo "❌ 错误：未检测到无线认证包"
+            echo "❌ 错误：wpad-wolfssl 未启用"
             exit 1
         fi
         
-        # 检查 frp 状态
         if grep -q "CONFIG_PACKAGE_frp=y" .config; then
             echo "⚠️ 警告：frp 已启用"
         else
             echo "✅ frp 已禁用"
         fi
         
-        # 检查多SSID支持
         if grep -q "CONFIG_WPA_MULTI_BSSID=y" .config; then
             echo "✅ 多SSID支持已启用"
         fi
         
-        # 检查 CPU 调频
         if grep -q "CONFIG_PACKAGE_kmod-cpufreq-dt=y" .config; then
             echo "✅ CPU 频率调节已启用"
         fi
@@ -188,23 +186,17 @@ jobs:
         TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
 
-    - name: 预置 QSDK 内核文件并下载软件包
+    - name: 预置 QSDK 文件并下载软件包
       run: |
         cd openwrt
         mkdir -p dl
         
-        # 下载 QSDK 专用的 backports 和内核（mac80211 需要）
         wget "https://www.dropbox.com/scl/fi/9ts30p2csnlb9imaf8k68/backports-20210222-5.4-qsdk-11.5.0.5.tar.xz?rlkey=sntbyfjgg86gu2uoocgb9ggp1&st=7w81hl56&dl=1" -O dl/backports-20210222-5.4-qsdk-11.5.0.5.tar.xz
         wget "https://www.dropbox.com/scl/fi/gu7ge6jmefn72ttuop1zs/linux-5.4-qsdk-11.5.0.5.tar.xz?rlkey=tdpq0ye35x290frbh7i8uqrm8&st=jjvegqrr&dl=1" -O dl/linux-5.4-qsdk-11.5.0.5.tar.xz
         
-        # 下载所有依赖包
         make download -j8
-        
-        # 检查下载完整性，删除不完整的文件
         find dl -size -1024c -exec ls -l {} \;
         find dl -size -1024c -exec rm -f {} \;
-        
-        echo "✅ 下载完成"
 
     - name: 编译固件
       id: compile
