@@ -1,236 +1,161 @@
-#
-# Copyright (c) 2019-2020 P3TERX <https://p3terx.com>
-#
-# This is free software, licensed under the MIT License.
-# See /LICENSE for more information.
-#
-# https://github.com/P3TERX/Actions-OpenWrt
-# Description: Build OpenWrt using GitHub Actions
-#
-
-name: 构建 OpenWrt-加入多ssid支持
+name: 构建 OpenWrt
 
 on:
-  repository_dispatch:
   workflow_dispatch:
-    inputs:
-      ssh:
-        description: 'SSH 连接至 Actions'
-        required: false
-        default: 'false'
-        type: boolean
   schedule:
     - cron: 0 8 * * 2
 
 env:
   REPO_URL: https://github.com/kkstone/immortalwrt-ipq50xx
   REPO_BRANCH: openwrt-21.02
-  FEEDS_CONF: feeds.conf.default
   CONFIG_FILE: 精简版.config
   DIY_P1_SH: 多ssid.sh
   DIY_P2_SH: diy-part2.sh
-  UPLOAD_BIN_DIR: true
-  UPLOAD_FIRMWARE: true
-  UPLOAD_RELEASE: false
-  TZ: Asia/Shanghai
 
 jobs:
   build:
     runs-on: ubuntu-22.04
-
     steps:
-    - name: 检出代码
-      uses: actions/checkout@main
+    - uses: actions/checkout@main
 
-    - name: 初始化编译环境
-      env:
-        DEBIAN_FRONTEND: noninteractive
+    # ============================================
+    # 1. 环境准备
+    # ============================================
+    - name: 安装编译依赖
       run: |
-        dpkg-query -Wf '${Installed-Size}\t${Package}\n' | sort -n | tail -n 100
-        df -h
-        echo "正在移除大体积软件包"
-        sudo apt-get remove -y '^dotnet-.*'
-        sudo apt-get remove -y '^llvm-.*'
-        sudo apt-get remove -y 'php.*'
-        sudo apt-get remove -y '^mongodb-.*'
-        sudo apt-get remove -y '^mysql-.*'
-        sudo apt-get remove -y azure-cli google-cloud-sdk google-chrome-stable firefox powershell mono-devel libgl1-mesa-dri
-        sudo apt-get autoremove -y
-        sudo apt-get clean
-        df -h
-        echo "正在移除大体积目录"
-        sudo rm -rf /usr/share/dotnet/
-        sudo rm -rf /usr/local/graalvm/
-        sudo rm -rf /usr/local/.ghcup/
-        sudo rm -rf /usr/local/share/powershell
-        sudo rm -rf /usr/local/share/chromium
-        sudo rm -rf /usr/local/lib/android
-        sudo rm -rf /usr/local/lib/node_modules
-        df -h
-        sudo -E apt-get -qq update
-        sudo apt install -y ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential \
-          bzip2 ccache clang cmake cpio curl device-tree-compiler ecj fastjar flex gawk gettext gcc-multilib \
-          g++-multilib git gnutls-dev gperf haveged help2man intltool lib32gcc-s1 libc6-dev-i386 libelf-dev \
-          libglib2.0-dev libgmp3-dev libltdl-dev libmpc-dev libmpfr-dev libncurses5-dev libncursesw5 \
-          libncursesw5-dev libpython3-dev libreadline-dev libssl-dev libtool lld llvm lrzsz mkisofs msmtp \
-          nano ninja-build p7zip p7zip-full patch pkgconf python2.7 python3 python3-pip python3-ply \
-          python3-pyelftools qemu-utils re2c rsync scons squashfs-tools subversion swig \
-          texinfo uglifyjs upx-ucl unzip vim wget xmlto xxd zlib1g-dev
-        sudo -E apt-get -qq autoremove --purge
-        sudo -E apt-get -qq clean
-        sudo timedatectl set-timezone "$TZ"
-        sudo mkdir -p /workdir
-        sudo chown $USER:$GROUPS /workdir
+        sudo apt update
+        sudo apt install -y build-essential clang flex gawk gcc-multilib g++-multilib \
+          gettext git libncurses-dev libssl-dev python3-distutils rsync unzip zlib1g-dev file wget
 
+    # ============================================
+    # 2. 克隆代码
+    # ============================================
     - name: 克隆源代码
-      working-directory: /workdir
-      run: |
-        df -hT $PWD
-        git clone $REPO_URL -b $REPO_BRANCH openwrt
-        ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
+      run: git clone $REPO_URL -b $REPO_BRANCH openwrt
 
-    - name: 启用编译缓存
-      uses: klever1988/cachewrtbuild@main
+    # ============================================
+    # 3. 缓存（加速编译）
+    # ============================================
+    - name: 缓存下载
+      uses: actions/cache@v3
       with:
-        ccache: 'true'
-        mixkey: 'immortalwrt21-cortexa7-vfpv4'
-        prefix: ${{ github.workspace }}/openwrt
+        path: openwrt/dl
+        key: dl-${{ hashFiles('openwrt/.config') }}
+        restore-keys: dl-
 
-    - name: 加载自定义 feeds
-      run: |
-        [ -e $FEEDS_CONF ] && mv $FEEDS_CONF openwrt/feeds.conf.default
-
+    # ============================================
+    # 4. 更新 feeds
+    # ============================================
     - name: 更新 feeds
       run: |
         cd openwrt
         ./scripts/feeds update -a
-
-    - name: 安装 feeds
-      run: |
-        cd openwrt
         ./scripts/feeds install -a
-        
-        # 升级 turboacc 到最新版本
-        rm -rf feeds/luci/applications/luci-app-turboacc
-        wget "https://www.dropbox.com/scl/fi/uccikbibj772c4sekzbk7/luci-app-turboacc.zip?rlkey=yzhkk0lfzhrthn8hbl1qt8k5j&st=31820445&dl=1" -O luci-app-turboacc.zip
-        unzip luci-app-turboacc.zip -d feeds/luci/applications/
-        rm -rf luci-app-turboacc.zip
-        echo "✓ 已升级 turboacc 到最新版本"
 
+    # ============================================
+    # 5. 应用配置
+    # ============================================
     - name: 应用基础配置
       run: |
-        [ -e files ] && mv files openwrt/files
-        [ -e $CONFIG_FILE ] && mv $CONFIG_FILE openwrt/.config
+        cd openwrt
+        cp $GITHUB_WORKSPACE/$CONFIG_FILE .config
 
-    - name: 执行 diy-part1.sh（配置无线、禁用frp等）
+    - name: 执行 diy-part1.sh
       run: |
-        chmod +x $DIY_P1_SH
+        chmod +x $GITHUB_WORKSPACE/$DIY_P1_SH
         cd openwrt
         $GITHUB_WORKSPACE/$DIY_P1_SH
-        
-    - name: 执行 diy-part2.sh（其他自定义）
+
+    - name: 执行 diy-part2.sh
       run: |
-        chmod +x $DIY_P2_SH
+        chmod +x $GITHUB_WORKSPACE/$DIY_P2_SH
         cd openwrt
         $GITHUB_WORKSPACE/$DIY_P2_SH
 
-    - name: 检查配置状态
+    # ============================================
+    # 6. 关键检查（编译前验证）
+    # ============================================
+    - name: 检查配置
       run: |
         cd openwrt
+        
         echo "=========================================="
-        echo "检查配置状态..."
+        echo "编译前配置检查"
         echo "=========================================="
         
-        # 检查无线配置
+        # 检查 wpad-wolfssl（必须）
         if grep -q "CONFIG_PACKAGE_wpad-wolfssl=y" .config; then
-            echo "✅ wpad-wolfssl 已启用（完整版 - 支持多SSID）"
-        elif grep -q "CONFIG_PACKAGE_wpad-basic-wolfssl=y" .config; then
-            echo "⚠️ wpad-basic-wolfssl 已启用（精简版 - 不支持多SSID）"
+            echo "✅ wpad-wolfssl 已启用"
         else
-            echo "❌ 错误：未检测到无线认证包"
+            echo "❌ wpad-wolfssl 未启用，编译将失败"
             exit 1
         fi
         
-        # 检查 frp 状态
+        # 检查 frp（警告但不失败）
         if grep -q "CONFIG_PACKAGE_frp=y" .config; then
-            echo "⚠️ 警告：frp 已启用"
+            echo "⚠️ 警告: frp 已启用，可能导致 quic-go 编译错误"
         else
             echo "✅ frp 已禁用"
         fi
         
-        # 检查多SSID支持
-        if grep -q "CONFIG_WPA_MULTI_BSSID=y" .config; then
-            echo "✅ 多SSID支持已启用"
+        # 检查 CPU 调频（可选）
+        if grep -q "CONFIG_PACKAGE_kmod-cpufreq-dt=y" .config; then
+            echo "✅ CPU 频率调节已启用"
+        fi
+        
+        # 检查配置文件完整性
+        if [ -s .config ]; then
+            echo "✅ .config 存在，$(wc -l < .config) 行"
+        else
+            echo "❌ .config 为空"
+            exit 1
         fi
         
         echo "=========================================="
 
-    - name: SSH 连接至 Actions
-      uses: P3TERX/ssh2actions@v1.0.0
-      if: (github.event.inputs.ssh == 'true' && github.event.inputs.ssh  != 'false') || contains(github.event.action, 'ssh')
-      env:
-        TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+    - name: 生成最终配置
+      run: |
+        cd openwrt
+        make defconfig
+        
+        # 验证 defconfig 没有破坏我们的设置
+        if grep -q "CONFIG_PACKAGE_frp=y" .config; then
+            echo "⚠️ 警告: defconfig 重新启用了 frp"
+        fi
 
+    # ============================================
+    # 7. 下载源码
+    # ============================================
     - name: 下载软件包
       run: |
         cd openwrt
-        mkdir -p dl
-        wget "https://www.dropbox.com/scl/fi/9ts30p2csnlb9imaf8k68/backports-20210222-5.4-qsdk-11.5.0.5.tar.xz?rlkey=sntbyfjgg86gu2uoocgb9ggp1&st=7w81hl56&dl=1" -O dl/backports-20210222-5.4-qsdk-11.5.0.5.tar.xz
-        wget "https://www.dropbox.com/scl/fi/gu7ge6jmefn72ttuop1zs/linux-5.4-qsdk-11.5.0.5.tar.xz?rlkey=tdpq0ye35x290frbh7i8uqrm8&st=jjvegqrr&dl=1" -O dl/linux-5.4-qsdk-11.5.0.5.tar.xz
-        
-        # 【重要】不要运行 make defconfig，直接用现有配置
         make download -j8
-        find dl -size -1024c -exec ls -l {} \;
-        find dl -size -1024c -exec rm -f {} \;
+        
+        # 检查下载完整性
+        DL_COUNT=$(find dl -type f | wc -l)
+        if [ $DL_COUNT -lt 5 ]; then
+            echo "⚠️ 警告: 只下载了 $DL_COUNT 个文件，可能有问题"
+        else
+            echo "✅ 下载了 $DL_COUNT 个文件"
+        fi
 
+    # ============================================
+    # 8. 编译
+    # ============================================
     - name: 编译固件
-      id: compile
       run: |
         cd openwrt
-        echo -e "$(nproc) 线程编译"
-        make -j$(nproc) || make -j1 || make -j1 V=s
-        echo "status=success" >> $GITHUB_OUTPUT
-        grep '^CONFIG_TARGET.*DEVICE.*=y' .config | sed -r 's/.*DEVICE_(.*)=y/\1/' > DEVICE_NAME
-        [ -s DEVICE_NAME ] && echo "DEVICE_NAME=_$(cat DEVICE_NAME)" >> $GITHUB_ENV
-        echo "FILE_DATE=_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
-        
-    - name: 检查磁盘空间
-      if: (!cancelled())
-      run: df -hT
+        echo "使用 $(nproc) 线程编译"
+        make -j$(nproc) || {
+          echo "并行编译失败，尝试单线程..."
+          make -j1
+        }
 
-    - name: 上传 bin 目录
+    # ============================================
+    # 9. 上传
+    # ============================================
+    - name: 上传固件
       uses: actions/upload-artifact@main
-      if: steps.compile.outputs.status == 'success' && env.UPLOAD_BIN_DIR == 'true'
       with:
-        name: OpenWrt_bin${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
-        path: openwrt/bin
-
-    - name: 整理并上传固件文件
-      id: organize
-      if: env.UPLOAD_FIRMWARE == 'true' && !cancelled()
-      run: |
-        cd openwrt/bin/targets/*/*
-        rm -rf packages
-        echo "FIRMWARE=$PWD" >> $GITHUB_ENV
-        echo "status=success" >> $GITHUB_OUTPUT
-        
-        echo "=========================================="
-        echo "编译结果摘要"
-        echo "=========================================="
-        echo "✅ 工作流执行完成"
-        echo "📦 固件位置：openwrt/bin/targets/"
-        echo "=========================================="
-
-    - name: 上传固件目录
-      uses: actions/upload-artifact@main
-      if: steps.organize.outputs.status == 'success' && !cancelled()
-      with:
-        name: OpenWrt_firmware${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
-        path: ${{ env.FIRMWARE }}
-
-    - name: 删除旧的工作流运行记录
-      uses: Mattraks/delete-workflow-runs@main
-      with:
-        retain_days: 1
-        keep_minimum_runs: 3
+        name: OpenWrt_$(date +%Y%m%d_%H%M)
+        path: openwrt/bin/targets/*/*
