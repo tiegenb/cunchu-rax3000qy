@@ -139,11 +139,11 @@ jobs:
         cd openwrt
         $GITHUB_WORKSPACE/$DIY_P2_SH
 
-    - name: 生成完整配置
-      run: |
-        cd openwrt
-        make defconfig
-        echo "✓ 配置已生成（自定义配置由 diy-part1.sh 和 diy-part2.sh 保证）"
+    - 
+- name: 准备配置
+  run: |
+    cd openwrt
+    echo "✓ 使用自定义配置（已由 diy-part1.sh 完成）"
 
     - name: 检查配置状态
       run: |
