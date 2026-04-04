@@ -194,6 +194,15 @@ jobs:
         find dl -size -1024c -exec ls -l {} \;
         find dl -size -1024c -exec rm -f {} \;
 
+     - name: 修复 OpenSSL 和 aircrack-ng
+  run: |
+    cd openwrt
+    # 确保 OpenSSL 开发包完整
+    echo "CONFIG_PACKAGE_libopenssl-dev=y" >> .config
+    echo "CONFIG_PACKAGE_libopenssl-conf=y" >> .config
+    # 清理并重新编译
+    make package/libs/openssl/{clean,compile} -j1
+
     - name: 编译固件
       id: compile
       run: |
