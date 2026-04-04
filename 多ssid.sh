@@ -1,5 +1,5 @@
 #!/bin/bash
-# 多ssid.sh - 编译前配置修改（简洁版）
+# 多ssid.sh - 编译前配置修改
 
 echo "=========================================="
 echo "Starting diy-part1.sh modifications..."
@@ -11,23 +11,24 @@ echo "=========================================="
 echo ""
 echo "1. Configuring wpad-wolfssl (Full version for Multi-SSID)..."
 
-# 禁用所有其他 wpad 变体
+# 禁用所有其他 wpad 变体（直接注释或删除）
 for wpad_var in wpad wpad-basic wpad-basic-openssl wpad-basic-wolfssl \
                  wpad-mesh-openssl wpad-mesh-wolfssl wpad-mini \
                  wpad-openssl wpad-wolfssl-basic; do
-    ./scripts/config --disable PACKAGE_${wpad_var} 2>/dev/null
+    sed -i "/^CONFIG_PACKAGE_${wpad_var}=/d" .config 2>/dev/null
+    echo "# CONFIG_PACKAGE_${wpad_var} is not set" >> .config
 done
 
-# 启用完整版 wpad-wolfssl
-./scripts/config --enable PACKAGE_wpad-wolfssl
+# 启用完整版 wpad-wolfssl（先删除已有配置，再添加）
+sed -i "/^CONFIG_PACKAGE_wpad-wolfssl=/d" .config 2>/dev/null
+sed -i "/^# CONFIG_PACKAGE_wpad-wolfssl is not set/d" .config 2>/dev/null
+echo "CONFIG_PACKAGE_wpad-wolfssl=y" >> .config
 
 # 禁用独立的 hostapd 和 wpa-supplicant
-./scripts/config --disable PACKAGE_hostapd
-./scripts/config --disable PACKAGE_hostapd-wolfssl
-./scripts/config --disable PACKAGE_hostapd-utils
-./scripts/config --disable PACKAGE_wpa-supplicant
-./scripts/config --disable PACKAGE_wpa-supplicant-wolfssl
-./scripts/config --disable PACKAGE_wpa-supplicant-basic
+for pkg in hostapd hostapd-wolfssl hostapd-utils wpa-supplicant wpa-supplicant-wolfssl wpa-supplicant-basic; do
+    sed -i "/^CONFIG_PACKAGE_${pkg}=/d" .config 2>/dev/null
+    echo "# CONFIG_PACKAGE_${pkg} is not set" >> .config
+done
 
 echo "   ✓ Enabled wpad-wolfssl (Full version)"
 
@@ -39,14 +40,16 @@ echo "2. Disabling unnecessary packages..."
 
 # frp 相关
 for pkg in frp frpc frps luci-app-frp; do
-    ./scripts/config --disable PACKAGE_${pkg} 2>/dev/null
+    sed -i "/^CONFIG_PACKAGE_${pkg}=/d" .config 2>/dev/null
+    echo "# CONFIG_PACKAGE_${pkg} is not set" >> .config
     echo "   ✓ Disabled PACKAGE_${pkg}"
 done
 
 # 其他不需要的包
 for pkg in watchcat luci-app-watchcat vlmcsd luci-app-kms \
            NATMap luci-app-natmap xlnetacc wol; do
-    ./scripts/config --disable PACKAGE_${pkg} 2>/dev/null
+    sed -i "/^CONFIG_PACKAGE_${pkg}=/d" .config 2>/dev/null
+    echo "# CONFIG_PACKAGE_${pkg} is not set" >> .config
     echo "   ✓ Disabled PACKAGE_${pkg}"
 done
 
@@ -55,7 +58,9 @@ done
 # ============================================
 echo ""
 echo "3. Enabling iptables..."
-./scripts/config --enable PACKAGE_iptables
+sed -i "/^CONFIG_PACKAGE_iptables=/d" .config 2>/dev/null
+sed -i "/^# CONFIG_PACKAGE_iptables is not set/d" .config 2>/dev/null
+echo "CONFIG_PACKAGE_iptables=y" >> .config
 echo "   ✓ Enabled PACKAGE_iptables"
 
 # ============================================
@@ -64,101 +69,85 @@ echo "   ✓ Enabled PACKAGE_iptables"
 echo ""
 echo "4. Adding CPU frequency scaling support..."
 
-./scripts/config --enable CPU_FREQ
-./scripts/config --enable CPU_FREQ_GOV_CONSERVATIVE
-./scripts/config --enable CPU_FREQ_GOV_ONDEMAND
-./scripts/config --enable CPU_FREQ_GOV_PERFORMANCE
-./scripts/config --enable CPU_FREQ_GOV_POWERSAVE
-./scripts/config --enable CPU_FREQ_GOV_USERSPACE
-./scripts/config --enable CPUFREQ_DT
-./scripts/config --enable PM_OPP
-./scripts/config --enable PACKAGE_kmod-cpufreq-dt
-./scripts/config --enable PACKAGE_cpufreq
-./scripts/config --enable PACKAGE_luci-app-cpufreq
+# 内核选项
+for opt in CPU_FREQ CPU_FREQ_GOV_CONSERVATIVE CPU_FREQ_GOV_ONDEMAND \
+           CPU_FREQ_GOV_PERFORMANCE CPU_FREQ_GOV_POWERSAVE CPU_FREQ_GOV_USERSPACE \
+           CPU_FREQ_DT PM_OPP; do
+    sed -i "/^CONFIG_${opt}=/d" .config 2>/dev/null
+    sed -i "/^# CONFIG_${opt} is not set/d" .config 2>/dev/null
+    echo "CONFIG_${opt}=y" >> .config
+done
+
+# 内核模块包
+for pkg in kmod-cpufreq-dt cpufreq luci-app-cpufreq; do
+    sed -i "/^CONFIG_PACKAGE_${pkg}=/d" .config 2>/dev/null
+    sed -i "/^# CONFIG_PACKAGE_${pkg} is not set/d" .config 2>/dev/null
+    echo "CONFIG_PACKAGE_${pkg}=y" >> .config
+done
 
 echo "   ✓ Enabled CPU frequency scaling"
 
 # ============================================
-# 5. 写入强制的 .config 覆盖（防止依赖拉回）
+# 5. 写入额外的强制配置
 # ============================================
 echo ""
-echo "5. Writing forced config overrides..."
+echo "5. Writing additional forced configs..."
 
 cat >> .config << 'EOF'
 
-# ========== 强制禁用（防止依赖自动选中） ==========
-# frp 系列
-CONFIG_PACKAGE_frp=n
-CONFIG_PACKAGE_frpc=n
-CONFIG_PACKAGE_frps=n
-CONFIG_PACKAGE_luci-app-frp=n
-
-# watchcat
-CONFIG_PACKAGE_watchcat=n
-CONFIG_PACKAGE_luci-app-watchcat=n
-
-# KMS
-CONFIG_PACKAGE_vlmcsd=n
-CONFIG_PACKAGE_luci-app-kms=n
-
-# NATMap
-CONFIG_PACKAGE_NATMap=n
-CONFIG_PACKAGE_luci-app-natmap=n
-
-# 其他
-CONFIG_PACKAGE_xlnetacc=n
-CONFIG_PACKAGE_wol=n
-
-# wpad 完整版配置
+# ========== 强制配置 ==========
 CONFIG_PACKAGE_wpad-wolfssl=y
-CONFIG_PACKAGE_wpad-basic-wolfssl=n
-
-# 802.11 特性
+CONFIG_WPA_MULTI_BSSID=y
 CONFIG_DRIVER_11N_SUPPORT=y
 CONFIG_DRIVER_11AC_SUPPORT=y
 CONFIG_DRIVER_11AX_SUPPORT=y
 CONFIG_DRIVER_11R_SUPPORT=y
 CONFIG_DRIVER_11K_SUPPORT=y
 CONFIG_DRIVER_11V_SUPPORT=y
-
-# WPA3
 CONFIG_WPA_MBO_SUPPORT=y
 CONFIG_WPA_SAE_SUPPORT=y
 CONFIG_WPA_OWE_SUPPORT=y
-CONFIG_WPA_MULTI_BSSID=y
 EOF
 
-echo "   ✓ Forced config overrides written"
+# ============================================
+# 6. 去重（删除重复的配置项，保留最后一个）
+# ============================================
+echo ""
+echo "6. Deduplicating .config..."
+
+# 使用 awk 去重：每个配置项只保留最后一次出现
+awk '!seen[$1]++ {line[++count]=$0} END {for(i=1;i<=count;i++) print line[i]}' .config > .config.tmp
+# 或者用 sort -u（简单但会打乱顺序）
+sort -u .config > .config.tmp
+mv .config.tmp .config
+
+echo "   ✓ Removed duplicate entries"
 
 # ============================================
-# 6. 验证配置
+# 7. 验证配置
 # ============================================
 echo ""
 echo "=========================================="
 echo "Configuration Summary:"
 echo "=========================================="
 
-# 验证关键包状态
-check_pkg() {
-    if ./scripts/config --state $1 2>/dev/null | grep -q "y"; then
-        echo "✅ $1 = y"
-    elif ./scripts/config --state $1 2>/dev/null | grep -q "n"; then
-        echo "❌ $1 = n"
-    else
-        echo "⚠️  $1 = undefined"
-    fi
-}
+if grep -q "^CONFIG_PACKAGE_wpad-wolfssl=y" .config; then
+    echo "✅ wpad-wolfssl = y"
+else
+    echo "⚠️ wpad-wolfssl 未正确设置"
+fi
 
-check_pkg PACKAGE_wpad-wolfssl
-check_pkg PACKAGE_frp
-check_pkg PACKAGE_frpc
-check_pkg PACKAGE_watchcat
-check_pkg PACKAGE_vlmcsd
-check_pkg PACKAGE_NATMap
-check_pkg PACKAGE_kmod-cpufreq-dt
+if grep -q "^# CONFIG_PACKAGE_frp is not set" .config; then
+    echo "✅ frp = n (disabled)"
+elif grep -q "^CONFIG_PACKAGE_frp=y" .config; then
+    echo "⚠️ frp = y (警告)"
+fi
+
+if grep -q "^CONFIG_PACKAGE_kmod-cpufreq-dt=y" .config; then
+    echo "✅ kmod-cpufreq-dt = y"
+fi
 
 echo "=========================================="
 echo ""
 echo "✅ 配置完成！"
-echo "📌 现在可以运行: make download -j8 && make -j\$(nproc)"
 echo "=========================================="
