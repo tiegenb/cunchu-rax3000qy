@@ -76,6 +76,8 @@ else
     echo "   ⚠ .config not found, skipping"
 fi
 
+
+
 # ============================================
 # 3. 验证配置
 # ============================================
@@ -103,6 +105,30 @@ fi
 if grep -q "^CONFIG_WPA_MULTI_BSSID=y" .config 2>/dev/null; then
     echo "✅ 多SSID支持 = y (已启用)"
 fi
+
+# ============================================
+# 8. 修复 OpenSSL 依赖问题
+# ============================================
+echo ""
+echo "8. Fixing OpenSSL library dependencies..."
+
+# 确保 OpenSSL 库被正确编译和打包
+cat >> .config << 'EOF'
+
+# OpenSSL 库配置
+CONFIG_PACKAGE_libopenssl=y
+CONFIG_PACKAGE_libopenssl-conf=y
+CONFIG_OPENSSL_ENGINE=y
+CONFIG_OPENSSL_WITH_DEPRECATED=y
+CONFIG_OPENSSL_WITH_ERROR_MESSAGES=y
+EOF
+
+# 清理可能存在的构建缓存
+rm -rf build_dir/target-*/openssl-* 2>/dev/null
+rm -rf staging_dir/target-*/pkginfo/openssl* 2>/dev/null
+
+echo "   ✓ OpenSSL dependencies fixed"
+
 
 echo "=========================================="
 echo ""
