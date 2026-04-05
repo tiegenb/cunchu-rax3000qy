@@ -5,7 +5,7 @@
 # 说明：使用 GitHub Actions 构建 OpenWrt
 #
 
-name: 构建 rzx3000Q-iy2-默认ssid名称.sh
+name: 构建 rzx3000Q-diy2-默认ssid名称.sh
 
 on:
   repository_dispatch:
