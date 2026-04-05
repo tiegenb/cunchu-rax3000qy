@@ -1,8 +1,5 @@
 #!/bin/bash
 # diy-part1.sh - 编译前配置修改
-#!/bin/bash
-# diy-part1.sh - 编译前配置修改
-
 
 # CPU频率调节支持（修正版）
 echo "2. Adding CPU frequency scaling support..."
