@@ -1,9 +1,32 @@
 #!/bin/bash
 # ==================== diy2-666.sh ====================
 
-# 创建必要目录
-mkdir -p files/etc/config
-mkdir -p files/etc/uci-defaults
+
+# ==================== 1. System 配置 ====================
+cat > files/etc/config/system << 'EOF'
+config system
+    option hostname 'WiFirepeater'
+    option description '室外大功率WIFI无线中继器'
+    option zonename 'Asia/Shanghai'
+    option timezone 'CST-8'
+    option log_proto 'udp'
+    option conloglevel '8'
+    option cronloglevel '5'
+    option zram_comp_algo 'lzo'
+
+config timeserver 'ntp'
+    option enabled '0'
+    option enable_server '0'
+EOF
+echo "✅ System 配置完成"
+
+# ==================== 2. 默认 IP 修改 ====================
+if [ -f package/base-files/files/bin/config_generate ]; then
+    sed -i 's/192.168.1.1/192.168.66.1/g' package/base-files/files/bin/config_generate
+    echo "✅ IP 修改完成 (192.168.1.1 → 192.168.66.1)"
+else
+    echo "⚠️ 警告: config_generate 文件不存在"
+fi
 
 # ==================== 检查并修复源码中的无线配置 ====================
 echo "=========================================="
@@ -61,32 +84,6 @@ fi
 
 echo "=========================================="
 echo ""
-
-# ==================== 1. System 配置 ====================
-cat > files/etc/config/system << 'EOF'
-config system
-    option hostname 'WiFirepeater'
-    option description '室外大功率WIFI无线中继器'
-    option zonename 'Asia/Shanghai'
-    option timezone 'CST-8'
-    option log_proto 'udp'
-    option conloglevel '8'
-    option cronloglevel '5'
-    option zram_comp_algo 'lzo'
-
-config timeserver 'ntp'
-    option enabled '0'
-    option enable_server '0'
-EOF
-echo "✅ System 配置完成"
-
-# ==================== 2. 默认 IP 修改 ====================
-if [ -f package/base-files/files/bin/config_generate ]; then
-    sed -i 's/192.168.1.1/192.168.66.1/g' package/base-files/files/bin/config_generate
-    echo "✅ IP 修改完成 (192.168.1.1 → 192.168.66.1)"
-else
-    echo "⚠️ 警告: config_generate 文件不存在"
-fi
 
 # ==================== 3. 强制启用脚本（备用保险） ====================
 cat > files/etc/uci-defaults/99-enable-wifi << 'EOF'
