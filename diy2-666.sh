@@ -56,10 +56,17 @@ echo "已备份原文件"
 # 修改1: 国家代码 CN -> US
 sed -i 's/set wireless.radio${devidx}.country=CN/set wireless.radio${devidx}.country=US/g' "$MAC80211_SH"
 
-# 修改2: 信道改为 auto（不区分频段，统一 auto）
-sed -i 's/set wireless.radio${devidx}.channel=${channel}/set wireless.radio${devidx}.channel=auto/g' "$MAC80211_SH"
+# 修改2: 2.4G 信道改为 auto（5G 信道不做修改，保持原样）
+# 注意：原代码中信道是通过 ${channel} 变量设置的，这个变量来自 get_band_defaults 函数
+# 我们需要在 2.4G 时覆盖这个变量，5G 时保持原值
+sed -i '/uci -q batch <<-EOF/i\
+		# 2.4G 信道设置为 auto，5G 保持默认\
+		if [ "${mode_band}" = "2g" ]; then\
+			channel="auto"\
+		fi\
+' "$MAC80211_SH"
 
-# 修改3: 添加功率判断（2.4G=18，5G 不设置即使用默认）
+# 修改3: 添加功率判断（2.4G=18，5G 不设置，使用驱动默认）
 sed -i '/uci -q batch <<-EOF/i\
 		# 根据频段设置不同的发射功率（5G 不设置，使用驱动默认）\
 		if [ "${mode_band}" = "2g" ]; then\
@@ -82,13 +89,13 @@ sed -i 's/set wireless.default_radio${devidx}.ssid=ImmortalWrt/set wireless.defa
 
 # 修改6: 带宽设置（2.4G=HT40，5G 保持原样）
 sed -i '/uci -q batch <<-EOF/i\
-		# 根据频段设置不同的带宽\
+		# 2.4G 带宽设置为 HT40，5G 保持默认\
 		if [ "${mode_band}" = "2g" ]; then\
 			htmode="HT40"\
 		fi\
 ' "$MAC80211_SH"
 
-# 修改7: 添加 mu_beamformer 和 cell_density
+# 修改7: 添加 mu_beamformer 和 cell_density（两个频段都启用）
 sed -i '/set wireless.radio${devidx}.htmode=/a\
 			set wireless.radio${devidx}.cell_density=0\
 			set wireless.radio${devidx}.mu_beamformer=1' "$MAC80211_SH"
@@ -109,11 +116,11 @@ else
     VERIFY_FAILED=1
 fi
 
-# 验证2: 信道 auto
-if grep -q 'channel=auto' "$MAC80211_SH"; then
-    echo "  ✓ 信道已设置为 auto"
+# 验证2: 2.4G 信道 auto
+if grep -q 'channel="auto"' "$MAC80211_SH"; then
+    echo "  ✓ 2.4G 信道已设置为 auto"
 else
-    echo "  ✗ 信道设置失败"
+    echo "  ✗ 2.4G 信道设置失败"
     VERIFY_FAILED=1
 fi
 
@@ -133,11 +140,11 @@ else
     VERIFY_FAILED=1
 fi
 
-# 验证5: 带宽
+# 验证5: 2.4G 带宽 HT40
 if grep -q 'htmode="HT40"' "$MAC80211_SH"; then
     echo "  ✓ 2.4G 带宽已设置为 HT40"
 else
-    echo "  ✗ 带宽设置失败"
+    echo "  ✗ 2.4G 带宽设置失败"
     VERIFY_FAILED=1
 fi
 
@@ -147,6 +154,14 @@ if grep -q 'mu_beamformer=1' "$MAC80211_SH"; then
 else
     echo "  ✗ mu_beamformer 设置失败"
     VERIFY_FAILED=1
+fi
+
+# 验证7: 确保没有错误修改 5G 信道为 auto
+if grep -q 'else.*channel="auto"' "$MAC80211_SH"; then
+    echo "  ✗ 警告: 5G 信道可能被错误设置为 auto"
+    VERIFY_FAILED=1
+else
+    echo "  ✓ 5G 信道保持默认（未修改）"
 fi
 
 if [ $VERIFY_FAILED -ne 0 ]; then
@@ -163,8 +178,8 @@ echo "配置摘要:"
 echo "  - 主机名: WiFirepeater"
 echo "  - 管理 IP: 192.168.66.1"
 echo "  - 国家代码: US"
-echo "  - 2.4G: 铁哥中继器-2.4G | auto | HT40 | 18dBm"
-echo "  - 5G: 铁哥中继器-5G | auto | 默认带宽 | 默认功率"
+echo "  - 2.4G: 铁哥中继器-2.4G | 信道: auto | 带宽: HT40 | 功率: 18dBm"
+echo "  - 5G: 铁哥中继器-5G | 信道: 默认 | 带宽: 默认 | 功率: 默认"
 echo "  - MU-MIMO: 启用"
 echo "========================================="
 
