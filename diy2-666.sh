@@ -58,29 +58,51 @@ echo "已备份原文件"
 # 修改1: 国家代码 CN -> US
 sed -i 's/set wireless.radio${devidx}.country=CN/set wireless.radio${devidx}.country=US/g' "$MAC80211_SH"
 
-# 修改2: 默认 SSID ImmortalWrt -> 铁哥中继器
-sed -i 's/set wireless.default_radio${devidx}.ssid=ImmortalWrt/set wireless.default_radio${devidx}.ssid=铁哥中继器/g' "$MAC80211_SH"
-
-# 修改3: 信道从 ${channel} 改为 auto
-sed -i 's/set wireless.radio${devidx}.channel=${channel}/set wireless.radio${devidx}.channel=auto/g' "$MAC80211_SH"
-
-# 修改4: 在 htmode 行后添加 txpower、cell_density、mu_beamformer
-sed -i '/set wireless.radio${devidx}.htmode=/a\
-			set wireless.radio${devidx}.txpower=${txpower_val}\
-			set wireless.radio${devidx}.cell_density=0\
-			set wireless.radio${devidx}.mu_beamformer=1' "$MAC80211_SH"
-
-# 修改5: 在 uci batch 块之前添加功率判断逻辑
+# 修改2: 信道设置（2.4G保持auto，5G改为48）
 sed -i '/uci -q batch <<-EOF/i\
-		# 根据频段设置不同的发射功率\
+		# 根据频段设置不同的信道\
 		if [ "${mode_band}" = "2g" ]; then\
-			txpower_val="18"\
+			channel_val="auto"\
 		else\
-			txpower_val="28"\
+			channel_val="48"\
 		fi\
 ' "$MAC80211_SH"
 
-echo "✅ 无线配置已修改（纯文本替换完成）"
+# 修改3: 将原来的 channel 变量替换为 channel_val
+sed -i 's/set wireless.radio${devidx}.channel=${channel}/set wireless.radio${devidx}.channel=${channel_val}/g' "$MAC80211_SH"
+
+# 修改4: SSID 根据频段区分
+sed -i '/uci -q batch <<-EOF/i\
+		# 根据频段设置不同的 SSID\
+		if [ "${mode_band}" = "2g" ]; then\
+			ssid_val="铁哥中继器-2.4G"\
+		else\
+			ssid_val="铁哥中继器-5G"\
+		fi\
+' "$MAC80211_SH"
+
+# 修改5: 将原来的 SSID 替换为 ssid_val
+sed -i 's/set wireless.default_radio${devidx}.ssid=铁哥中继器/set wireless.default_radio${devidx}.ssid=${ssid_val}/g' "$MAC80211_SH"
+
+# 修改6: 只设置 2.4G 的发射功率（5G 保持默认）
+sed -i '/uci -q batch <<-EOF/i\
+		# 只设置 2.4G 的发射功率，5G 保持默认\
+		if [ "${mode_band}" = "2g" ]; then\
+			txpower_val="18"\
+			set wireless.radio${devidx}.txpower=${txpower_val}\
+			set wireless.radio${devidx}.cell_density=0\
+			set wireless.radio${devidx}.mu_beamformer=1\
+		else\
+			set wireless.radio${devidx}.cell_density=0\
+			set wireless.radio${devidx}.mu_beamformer=1\
+		fi\
+' "$MAC80211_SH"
+
+# 修改7: 删除原来单独添加的 txpower 行（避免重复）
+# 注意：需要先删除之前可能添加的通用 txpower 行
+sed -i '/set wireless.radio${devidx}.txpower=${txpower_val}/d' "$MAC80211_SH"
+
+echo "✅ 无线配置已修改（2.4G功率=18，5G保持默认）"
 
 # 验证修改
 echo ""
@@ -88,15 +110,7 @@ echo "验证无线配置修改结果..."
 
 VERIFY_FAILED=0
 
-# 验证1: 信道
-if grep -q 'set wireless.radio${devidx}.channel=auto' "$MAC80211_SH"; then
-    echo "  ✓ 信道已设置为 auto"
-else
-    echo "  ✗ 信道设置失败"
-    VERIFY_FAILED=1
-fi
-
-# 验证2: 国家代码
+# 验证1: 国家代码
 if grep -q 'set wireless.radio${devidx}.country=US' "$MAC80211_SH"; then
     echo "  ✓ 国家代码已修改为 US"
 else
@@ -104,19 +118,27 @@ else
     VERIFY_FAILED=1
 fi
 
-# 验证3: SSID
-if grep -q 'set wireless.default_radio${devidx}.ssid=铁哥中继器' "$MAC80211_SH"; then
-    echo "  ✓ SSID 已修改为「铁哥中继器」"
+# 验证2: 信道区分逻辑
+if grep -q 'channel_val="auto"' "$MAC80211_SH" && grep -q 'channel_val="48"' "$MAC80211_SH"; then
+    echo "  ✓ 信道区分逻辑已添加 (2.4G=auto, 5G=48)"
 else
-    echo "  ✗ SSID 修改失败"
+    echo "  ✗ 信道区分逻辑添加失败"
     VERIFY_FAILED=1
 fi
 
-# 验证4: 功率判断逻辑
-if grep -q 'txpower_val="18"' "$MAC80211_SH" && grep -q 'txpower_val="28"' "$MAC80211_SH"; then
-    echo "  ✓ 功率判断逻辑已添加 (2.4G=18, 5G=28)"
+# 验证3: SSID 区分逻辑
+if grep -q 'ssid_val="铁哥中继器-2.4G"' "$MAC80211_SH" && grep -q 'ssid_val="铁哥中继器-5G"' "$MAC80211_SH"; then
+    echo "  ✓ SSID 区分逻辑已添加 (2.4G=铁哥中继器-2.4G, 5G=铁哥中继器-5G)"
 else
-    echo "  ✗ 功率判断逻辑添加失败"
+    echo "  ✗ SSID 区分逻辑添加失败"
+    VERIFY_FAILED=1
+fi
+
+# 验证4: 2.4G 功率设置
+if grep -q 'txpower_val="18"' "$MAC80211_SH" && grep -q 'set wireless.radio${devidx}.txpower=${txpower_val}' "$MAC80211_SH"; then
+    echo "  ✓ 2.4G 功率已设置为 18dBm"
+else
+    echo "  ✗ 2.4G 功率设置失败"
     VERIFY_FAILED=1
 fi
 
@@ -136,6 +158,14 @@ else
     VERIFY_FAILED=1
 fi
 
+# 验证7: 确保 5G 没有设置 txpower
+if grep -q 'set wireless.radio${devidx}.txpower=28' "$MAC80211_SH"; then
+    echo "  ✗ 警告: 5G 仍设置了发射功率（预期为默认值）"
+    VERIFY_FAILED=1
+else
+    echo "  ✓ 5G 发射功率保持默认（未额外设置）"
+fi
+
 if [ $VERIFY_FAILED -ne 0 ]; then
     echo ""
     echo "错误: 无线配置修改验证失败，编译终止"
@@ -151,10 +181,8 @@ echo "  - 主机名: WiFirepeater"
 echo "  - 管理 IP: 192.168.66.1"
 echo "  - 时区: Asia/Shanghai"
 echo "  - 国家代码: US"
-echo "  - Wi-Fi SSID: 铁哥中继器"
-echo "  - 2.4G 功率: 18dBm"
-echo "  - 5G 功率: 28dBm"
-echo "  - 信道: auto"
+echo "  - 2.4G SSID: 铁哥中继器-2.4G | 信道: auto | 功率: 18dBm"
+echo "  - 5G SSID: 铁哥中继器-5G | 信道: 48 | 功率: 默认值"
 echo "  - MU-MIMO: 启用"
 echo "========================================="
 
