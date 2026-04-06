@@ -1,7 +1,9 @@
 #!/bin/bash
 # ==================== diy2-666.sh ====================
 
-
+# 创建必要目录
+mkdir -p files/etc/config
+mkdir -p files/etc/config/system
 # ==================== 1. System 配置 ====================
 cat > files/etc/config/system << 'EOF'
 config system
