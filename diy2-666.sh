@@ -55,10 +55,19 @@ echo "找到无线配置文件: $MAC80211_SH"
 cp "$MAC80211_SH" "$MAC80211_SH.bak"
 echo "已备份原文件"
 
+# 先清理可能存在的旧修改（避免重复）
+sed -i '/# 根据频段设置不同的信道/,/# 根据频段设置不同的 SSID/{ /# 根据频段设置不同的信道/b; /# 根据频段设置不同的 SSID/b; d; }' "$MAC80211_SH" 2>/dev/null || true
+
 # 修改1: 国家代码 CN -> US
 sed -i 's/set wireless.radio${devidx}.country=CN/set wireless.radio${devidx}.country=US/g' "$MAC80211_SH"
 
-# 修改2: 信道设置（2.4G保持auto，5G改为48）
+# 修改2: 将原来的 channel 变量替换为 channel_val（先替换，后面会定义）
+sed -i 's/set wireless.radio${devidx}.channel=${channel}/set wireless.radio${devidx}.channel=${channel_val}/g' "$MAC80211_SH"
+
+# 修改3: 将原来的 SSID 替换为 ssid_val
+sed -i 's/set wireless.default_radio${devidx}.ssid=ImmortalWrt/set wireless.default_radio${devidx}.ssid=${ssid_val}/g' "$MAC80211_SH"
+
+# 修改4: 在 uci batch 块之前添加所有判断逻辑（一次性添加，避免多次插入）
 sed -i '/uci -q batch <<-EOF/i\
 		# 根据频段设置不同的信道\
 		if [ "${mode_band}" = "2g" ]; then\
@@ -66,41 +75,23 @@ sed -i '/uci -q batch <<-EOF/i\
 		else\
 			channel_val="48"\
 		fi\
-' "$MAC80211_SH"
-
-# 修改3: 将原来的 channel 变量替换为 channel_val
-sed -i 's/set wireless.radio${devidx}.channel=${channel}/set wireless.radio${devidx}.channel=${channel_val}/g' "$MAC80211_SH"
-
-# 修改4: SSID 根据频段区分
-sed -i '/uci -q batch <<-EOF/i\
+		\
 		# 根据频段设置不同的 SSID\
 		if [ "${mode_band}" = "2g" ]; then\
 			ssid_val="铁哥中继器-2.4G"\
 		else\
 			ssid_val="铁哥中继器-5G"\
 		fi\
-' "$MAC80211_SH"
-
-# 修改5: 将原来的 SSID 替换为 ssid_val
-sed -i 's/set wireless.default_radio${devidx}.ssid=铁哥中继器/set wireless.default_radio${devidx}.ssid=${ssid_val}/g' "$MAC80211_SH"
-
-# 修改6: 只设置 2.4G 的发射功率（5G 保持默认）
-sed -i '/uci -q batch <<-EOF/i\
+		\
+		# 设置通用参数（cell_density 和 mu_beamformer 两个频段都启用）\
+		set wireless.radio${devidx}.cell_density=0\
+		set wireless.radio${devidx}.mu_beamformer=1\
+		\
 		# 只设置 2.4G 的发射功率，5G 保持默认\
 		if [ "${mode_band}" = "2g" ]; then\
-			txpower_val="18"\
-			set wireless.radio${devidx}.txpower=${txpower_val}\
-			set wireless.radio${devidx}.cell_density=0\
-			set wireless.radio${devidx}.mu_beamformer=1\
-		else\
-			set wireless.radio${devidx}.cell_density=0\
-			set wireless.radio${devidx}.mu_beamformer=1\
+			set wireless.radio${devidx}.txpower=18\
 		fi\
 ' "$MAC80211_SH"
-
-# 修改7: 删除原来单独添加的 txpower 行（避免重复）
-# 注意：需要先删除之前可能添加的通用 txpower 行
-sed -i '/set wireless.radio${devidx}.txpower=${txpower_val}/d' "$MAC80211_SH"
 
 echo "✅ 无线配置已修改（2.4G功率=18，5G保持默认）"
 
@@ -134,8 +125,8 @@ else
     VERIFY_FAILED=1
 fi
 
-# 验证4: 2.4G 功率设置
-if grep -q 'txpower_val="18"' "$MAC80211_SH" && grep -q 'set wireless.radio${devidx}.txpower=${txpower_val}' "$MAC80211_SH"; then
+# 验证4: 2.4G 功率设置（检查是否包含 set wireless.radio${devidx}.txpower=18）
+if grep -q 'set wireless.radio${devidx}.txpower=18' "$MAC80211_SH"; then
     echo "  ✓ 2.4G 功率已设置为 18dBm"
 else
     echo "  ✗ 2.4G 功率设置失败"
@@ -158,9 +149,9 @@ else
     VERIFY_FAILED=1
 fi
 
-# 验证7: 确保 5G 没有设置 txpower
+# 验证7: 确保 5G 没有设置 txpower（检查是否没有 28 或额外的 txpower）
 if grep -q 'set wireless.radio${devidx}.txpower=28' "$MAC80211_SH"; then
-    echo "  ✗ 警告: 5G 仍设置了发射功率（预期为默认值）"
+    echo "  ✗ 警告: 5G 仍设置了发射功率 28（预期为默认值）"
     VERIFY_FAILED=1
 else
     echo "  ✓ 5G 发射功率保持默认（未额外设置）"
@@ -169,6 +160,10 @@ fi
 if [ $VERIFY_FAILED -ne 0 ]; then
     echo ""
     echo "错误: 无线配置修改验证失败，编译终止"
+    echo "查看修改后的关键代码片段："
+    echo "----------------------------------------"
+    grep -A 30 "uci -q batch <<-EOF" "$MAC80211_SH" | head -40
+    echo "----------------------------------------"
     cp "$MAC80211_SH.bak" "$MAC80211_SH"
     exit 1
 fi
