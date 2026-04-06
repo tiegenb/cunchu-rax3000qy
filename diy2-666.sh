@@ -29,4 +29,20 @@ else
     echo "⚠️ 警告: config_generate 文件不存在"
 fi
 
+# 3. 修复 nss-dp 下载问题
+PKG_SOURCE_VERSION="480f036cc96d4e5faa426cfcf90fa7e64dff87e8"
+PKG_VERSION="NHSS.QSDK.11.5.0.5"
+
+if [ ! -d "dl/qca-nss-dp-${PKG_SOURCE_VERSION}" ]; then
+    echo "正在手动克隆 nss-dp 仓库..."
+    git clone https://git.codelinaro.org/clo/qsdk/oss/lklm/nss-dp.git dl/qca-nss-dp-${PKG_SOURCE_VERSION}
+    cd dl/qca-nss-dp-${PKG_SOURCE_VERSION}
+    git checkout ${PKG_SOURCE_VERSION}
+    cd ../..
+    tar -czf dl/qca-nss-dp-${PKG_VERSION}.tar.gz -C dl qca-nss-dp-${PKG_SOURCE_VERSION}
+    echo "✅ nss-dp 源码已手动处理完成"
+else
+    echo "nss-dp 源码已存在，跳过"
+fi
+
 echo "✅ 配置完成"
