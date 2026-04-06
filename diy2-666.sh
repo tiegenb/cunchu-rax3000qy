@@ -30,77 +30,182 @@ else
     echo "⚠️ 警告: config_generate 文件不存在"
 fi
 
-# ==================== 检查并修复源码中的无线配置 ====================
-echo "=========================================="
-echo "检查并修复源码中的无线配置..."
-echo "=========================================="
+# ==================== 3. 无线配置修改 ====================
+# 定义目标文件路径
+MAC80211_SH="package/kernel/mac80211/files/lib/wifi/mac80211.sh"
 
-# 查找 mac80211.sh 文件
-MAC80211_SH=""
-if [ -f "package/kernel/mac80211/files/lib/wifi/mac80211.sh" ]; then
-    MAC80211_SH="package/kernel/mac80211/files/lib/wifi/mac80211.sh"
-elif [ -f "package/kernel/mac80211/files/lib/netifd/wireless/mac80211.sh" ]; then
-    MAC80211_SH="package/kernel/mac80211/files/lib/netifd/wireless/mac80211.sh"
-else
-    echo "❌ 错误: 找不到 mac80211.sh 文件"
+# 检查文件是否存在
+if [ ! -f "$MAC80211_SH" ]; then
+    echo "错误: 找不到 $MAC80211_SH"
+    echo "当前目录: $(pwd)"
     exit 1
 fi
 
-echo "找到文件: $MAC80211_SH"
+echo "找到无线配置文件: $MAC80211_SH"
 
-# 检查是否包含 disabled=0
-if grep -q "set wireless.radio\${devidx}.disabled=0" "$MAC80211_SH"; then
-    echo "✅ 已存在 disabled=0，无需修复"
-else
-    echo "⚠️ 未找到 disabled=0，尝试自动修复..."
-    
-    # 尝试修复：将 disabled=1 改为 disabled=0
-    if grep -q "set wireless.radio\${devidx}.disabled=1" "$MAC80211_SH"; then
-        sed -i 's/set wireless.radio\${devidx}.disabled=1/set wireless.radio\${devidx}.disabled=0/g' "$MAC80211_SH"
-        echo "🔧 已将 disabled=1 改为 disabled=0"
-    else
-        # 如果没有 disabled=1，尝试在合适的位置添加 disabled=0
-        echo "⚠️ 未找到 disabled=1，尝试添加 disabled=0..."
-        # 在 htmode 设置后面添加 disabled=0
-        sed -i '/set wireless.radio${devidx}.htmode=/a \\t\t\tset wireless.radio${devidx}.disabled=0' "$MAC80211_SH"
-    fi
-    
-    # 验证修复是否成功
-    if grep -q "set wireless.radio\${devidx}.disabled=0" "$MAC80211_SH"; then
-        echo "✅ 修复成功: 已添加 disabled=0"
-    else
-        echo "❌ 修复失败: 无法添加 disabled=0"
-        echo "   请手动检查 $MAC80211_SH 文件"
-        exit 1
-    fi
-fi
+# 备份原文件
+cp "$MAC80211_SH" "$MAC80211_SH.bak"
+echo "已备份原文件"
 
-# 额外检查是否有 disabled=1 残留
-if grep -q "set wireless.radio\${devidx}.disabled=1" "$MAC80211_SH"; then
-    echo "❌ 错误: 仍存在 disabled=1 配置"
-    echo "   请手动检查 $MAC80211_SH 文件"
+# 使用 cat 来替换整个 detect_mac80211 函数
+# 获取函数开始和结束的行号
+START_LINE=$(grep -n "^detect_mac80211() {" "$MAC80211_SH" | cut -d: -f1)
+END_LINE=$(grep -n "^}" "$MAC80211_SH" | awk -F: -v start="$START_LINE" '$1 > start {print $1; exit}')
+
+if [ -z "$START_LINE" ] || [ -z "$END_LINE" ]; then
+    echo "错误: 无法定位 detect_mac80211 函数"
     exit 1
-else
-    echo "✅ 确认无 disabled=1 冲突"
 fi
 
-echo "=========================================="
-echo ""
+# 保存函数之前和之后的内容
+head -n $((START_LINE - 1)) "$MAC80211_SH" > /tmp/mac80211_head
+tail -n +$((END_LINE + 1)) "$MAC80211_SH" > /tmp/mac80211_tail
 
-# ==================== 3. 强制启用脚本（备用保险） ====================
-cat > files/etc/uci-defaults/99-enable-wifi << 'EOF'
-#!/bin/sh
-sleep 3
-uci set wireless.radio0.disabled=0
-uci set wireless.radio1.disabled=0
-uci commit wireless
-/etc/init.d/network restart
-exit 0
+# 写入修改后的函数（信道设置为 auto）
+cat > /tmp/mac80211_function << 'EOF'
+detect_mac80211() {
+	devidx=0
+	config_load wireless
+	while :; do
+		config_get type "radio$devidx" type
+		[ -n "$type" ] || break
+		devidx=$(($devidx + 1))
+	done
+
+	for _dev in /sys/class/ieee80211/*; do
+		[ -e "$_dev" ] || continue
+
+		dev="${_dev##*/}"
+
+		found=0
+		config_foreach check_mac80211_device wifi-device
+		[ "$found" -gt 0 ] && continue
+
+		mode_band=""
+		channel=""
+		htmode=""
+		ht_capab=""
+
+		get_band_defaults "$dev"
+
+		path="$(iwinfo nl80211 path "$dev")"
+		if [ -n "$path" ]; then
+			dev_id="set wireless.radio${devidx}.path='$path'"
+		else
+			dev_id="set wireless.radio${devidx}.macaddr=$(cat /sys/class/ieee80211/${dev}/macaddress)"
+		fi
+
+		# 根据频段设置不同的发射功率
+		if [ "${mode_band}" = "2g" ]; then
+			txpower_val="18"
+		else
+			txpower_val="28"
+		fi
+
+		uci -q batch <<-EOF
+			set wireless.radio${devidx}=wifi-device
+			set wireless.radio${devidx}.type=mac80211
+			${dev_id}
+			set wireless.radio${devidx}.channel=auto
+			set wireless.radio${devidx}.band=${mode_band}
+			set wireless.radio${devidx}.htmode=${htmode}
+			set wireless.radio${devidx}.country=US
+			set wireless.radio${devidx}.disabled=0
+			set wireless.radio${devidx}.txpower=${txpower_val}
+			set wireless.radio${devidx}.cell_density=0
+			set wireless.radio${devidx}.mu_beamformer=1
+
+			set wireless.default_radio${devidx}=wifi-iface
+			set wireless.default_radio${devidx}.device=radio${devidx}
+			set wireless.default_radio${devidx}.network=lan
+			set wireless.default_radio${devidx}.mode=ap
+			set wireless.default_radio${devidx}.ssid=铁哥中继器
+			set wireless.default_radio${devidx}.encryption=none
 EOF
-chmod +x files/etc/uci-defaults/99-enable-wifi
-echo "✅ 已添加无线强制启用脚本"
+		uci -q commit wireless
 
-# ==================== 完成 ====================
-echo "=========================================="
-echo "✅ 所有配置完成，继续编译"
-echo "=========================================="
+		devidx=$(($devidx + 1))
+	done
+}
+EOF
+
+# 重新组合文件
+cat /tmp/mac80211_head /tmp/mac80211_function /tmp/mac80211_tail > "$MAC80211_SH"
+
+# 清理临时文件
+rm -f /tmp/mac80211_head /tmp/mac80211_tail /tmp/mac80211_function
+
+echo "✅ 无线配置已修改（信道=auto，2.4G功率=18，5G功率=28）"
+
+# 验证无线配置修改
+echo ""
+echo "验证无线配置修改结果..."
+
+VERIFY_FAILED=0
+
+# 验证1: 信道设置为 auto
+if grep -q 'set wireless.radio${devidx}.channel=auto' "$MAC80211_SH"; then
+    echo "  ✓ 信道已设置为 auto（自动）"
+else
+    echo "  ✗ 信道设置失败"
+    VERIFY_FAILED=1
+fi
+
+# 验证2: 国家代码
+if grep -q "set wireless.radio\${devidx}.country=US" "$MAC80211_SH"; then
+    echo "  ✓ 国家代码已修改为 US"
+else
+    echo "  ✗ 国家代码修改失败"
+    VERIFY_FAILED=1
+fi
+
+# 验证3: SSID
+if grep -q "set wireless.default_radio\${devidx}.ssid=铁哥中继器" "$MAC80211_SH"; then
+    echo "  ✓ SSID 已修改为「铁哥中继器」"
+else
+    echo "  ✗ SSID 修改失败"
+    VERIFY_FAILED=1
+fi
+
+# 验证4: 2.4G 功率判断逻辑
+if grep -q 'if \[ "${mode_band}" = "2g" \]; then' "$MAC80211_SH" && grep -q 'txpower_val="18"' "$MAC80211_SH"; then
+    echo "  ✓ 2.4G 功率逻辑已添加 (18dBm)"
+else
+    echo "  ✗ 2.4G 功率逻辑添加失败"
+    VERIFY_FAILED=1
+fi
+
+# 验证5: 5G 功率
+if grep -q 'txpower_val="28"' "$MAC80211_SH"; then
+    echo "  ✓ 5G 功率逻辑已添加 (28dBm)"
+else
+    echo "  ✗ 5G 功率逻辑添加失败"
+    VERIFY_FAILED=1
+fi
+
+# 验证6: mu_beamformer
+if grep -q "set wireless.radio\${devidx}.mu_beamformer=1" "$MAC80211_SH"; then
+    echo "  ✓ mu_beamformer 已启用"
+else
+    echo "  ✗ mu_beamformer 设置失败"
+    VERIFY_FAILED=1
+fi
+
+# 验证7: cell_density
+if grep -q "set wireless.radio\${devidx}.cell_density=0" "$MAC80211_SH"; then
+    echo "  ✓ cell_density 已设置为 0"
+else
+    echo "  ✗ cell_density 设置失败"
+    VERIFY_FAILED=1
+fi
+
+# 如果无线配置验证失败，退出编译
+if [ $VERIFY_FAILED -ne 0 ]; then
+    echo ""
+    echo "错误: 无线配置修改验证失败，编译终止"
+    # 恢复原文件
+    cp "$MAC80211_SH.bak" "$MAC80211_SH"
+    exit 1
+fi
+
+echo "✅ 无线配置修改成功验证"
