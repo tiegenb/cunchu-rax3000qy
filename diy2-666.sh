@@ -101,22 +101,6 @@ EOF
 chmod +x files/etc/uci-defaults/99-enable-wifi
 echo "✅ 已添加无线强制启用脚本"
 
-# ==================== 4. 修复 nss-dp 下载问题 ====================
-PKG_SOURCE_VERSION="480f036cc96d4e5faa426cfcf90fa7e64dff87e8"
-PKG_VERSION="NHSS.QSDK.11.5.0.5"
-
-if [ ! -d "dl/qca-nss-dp-${PKG_SOURCE_VERSION}" ]; then
-    echo "正在手动克隆 nss-dp 仓库..."
-    git clone https://git.codelinaro.org/clo/qsdk/oss/lklm/nss-dp.git dl/qca-nss-dp-${PKG_SOURCE_VERSION}
-    cd dl/qca-nss-dp-${PKG_SOURCE_VERSION}
-    git checkout ${PKG_SOURCE_VERSION}
-    cd ../..
-    tar -cJf dl/qca-nss-dp-${PKG_VERSION}.tar.xz -C dl qca-nss-dp-${PKG_SOURCE_VERSION}
-    echo "✅ nss-dp 源码已手动处理完成"
-else
-    echo "nss-dp 源码已存在，跳过"
-fi
-
 # ==================== 完成 ====================
 echo "=========================================="
 echo "✅ 所有配置完成，继续编译"
