@@ -58,15 +58,40 @@ sed -i '/uci -q batch <<-EOF/i\
 # 修改2: 将 SSID 行改为使用变量
 sed -i 's/set wireless.default_radio${devidx}.ssid=ImmortalWrt/set wireless.default_radio${devidx}.ssid=${ssid}/g' "$MAC80211_SH"
 
-# 修改3: 2.4G 功率设置为 18dBm
+# 修改3: 2.4G 信道设置为自动
 sed -i '/uci -q batch <<-EOF/i\
-		# 2.4G 发射功率\
+		# 2.4G 信道自动选择\
 		if [ "${mode_band}" = "2g" ]; then\
-			txpower_val="18"\
+			channel="auto"\
 		fi\
 ' "$MAC80211_SH"
 
-# 修改4: 启用 MU-MIMO（双频）
+# 修改4: 2.4G 功率设置为 20dBm
+sed -i '/uci -q batch <<-EOF/i\
+		# 2.4G 发射功率\
+		if [ "${mode_band}" = "2g" ]; then\
+			txpower_val="20"\
+		fi\
+' "$MAC80211_SH"
+
+# 修改5: 2.4G 强制 40MHz（锁定40MHz，不回退20MHz）
+sed -i '/uci -q batch <<-EOF/i\
+		# 2.4G 强制 40MHz 带宽（noscan=1 锁定，不回退）\
+		if [ "${mode_band}" = "2g" ]; then\
+			htmode="HT40"\
+			set wireless.radio${devidx}.noscan=1\
+		fi\
+' "$MAC80211_SH"
+
+# 修改6: 2.4G 启用 256-QAM
+sed -i '/uci -q batch <<-EOF/i\
+		# 2.4G 启用 256-QAM\
+		if [ "${mode_band}" = "2g" ]; then\
+			set wireless.radio${devidx}.ldpc=1\
+		fi\
+' "$MAC80211_SH"
+
+# 修改7: 启用 MU-MIMO（双频）
 sed -i '/set wireless.radio${devidx}.htmode=/a\
 			set wireless.radio${devidx}.mu_beamformer=1' "$MAC80211_SH"
 
@@ -92,10 +117,31 @@ else
     VERIFY_FAILED=1
 fi
 
-if grep -q 'txpower_val="18"' "$MAC80211_SH"; then
-    echo "  ✓ 2.4G 功率: 18dBm"
+if grep -q 'channel="auto"' "$MAC80211_SH"; then
+    echo "  ✓ 2.4G 信道: 自动"
+else
+    echo "  ✗ 2.4G 信道自动设置失败"
+    VERIFY_FAILED=1
+fi
+
+if grep -q 'txpower_val="20"' "$MAC80211_SH"; then
+    echo "  ✓ 2.4G 功率: 20dBm"
 else
     echo "  ✗ 2.4G 功率设置失败"
+    VERIFY_FAILED=1
+fi
+
+if grep -q 'htmode="HT40"' "$MAC80211_SH"; then
+    echo "  ✓ 2.4G 已设置为 HT40 模式"
+else
+    echo "  ✗ 2.4G HT40 模式设置失败"
+    VERIFY_FAILED=1
+fi
+
+if grep -q 'noscan=1' "$MAC80211_SH"; then
+    echo "  ✓ 2.4G 强制 40MHz（noscan=1，不回退20MHz）"
+else
+    echo "  ✗ 2.4G 强制40MHz设置失败"
     VERIFY_FAILED=1
 fi
 
@@ -104,6 +150,12 @@ if grep -q 'mu_beamformer=1' "$MAC80211_SH"; then
 else
     echo "  ✗ MU-MIMO 设置失败"
     VERIFY_FAILED=1
+fi
+
+if grep -q 'ldpc=1' "$MAC80211_SH"; then
+    echo "  ✓ 2.4G 256-QAM 已启用"
+else
+    echo "  ⚠️ 256-QAM 设置失败（可能驱动不支持）"
 fi
 
 if [ $VERIFY_FAILED -ne 0 ]; then
@@ -118,8 +170,12 @@ echo "========================================="
 echo "配置摘要（保留项）:"
 echo "  - 主机名: WiFirepeater"
 echo "  - 管理 IP: 192.168.66.1"
-echo "  - 2.4G SSID: 铁哥中继器-2.4G | 功率: 18dBm"
+echo "  - 2.4G SSID: 铁哥中继器-2.4G"
+echo "  - 2.4G 信道: 自动"
+echo "  - 2.4G 功率: 18dBm"
+echo "  - 2.4G 带宽: 强制 40MHz（noscan=1，不回退）"
+echo "  - 2.4G 256-QAM: 已启用"
 echo "  - 5G SSID: 铁哥中继器-5G"
 echo "  - MU-MIMO: 双频启用"
-echo "  - 其余配置（国家代码、信道、带宽等）: 使用驱动默认值"
+echo "  - 其余配置: 使用驱动默认值"
 echo "========================================="
