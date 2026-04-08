@@ -10,18 +10,22 @@ echo "========================================="
 mkdir -p files/etc/config
 mkdir -p files/etc/uci-defaults
 
-# ==================== 1. System 配置（主机名） ====================
+# ==================== 1. System 配置 ====================
 cat > files/etc/config/system << 'EOF'
 config system
     option hostname 'WiFirepeater'
     option zonename 'Asia/Shanghai'
     option timezone 'CST-8'
+    option log_proto 'udp'
+    option conloglevel '8'
+    option cronloglevel '5'
+    option zram_comp_algo 'lzo'
 
 config timeserver 'ntp'
-    option enabled '0'
+    option enabled '1'
     option enable_server '0'
 EOF
-echo "✅ 主机名: WiFirepeater"
+echo "✅ System 配置完成（主机名: WiFirepeater，NTP客户端已启用）"
 
 # ==================== 2. 默认 IP 修改 ====================
 if [ -f package/base-files/files/bin/config_generate ]; then
@@ -84,6 +88,7 @@ echo ""
 echo "========================================="
 echo "配置摘要:"
 echo "  - 主机名: WiFirepeater | IP: 192.168.66.1"
+echo "  - NTP: 已启用（使用系统默认服务器列表）"
 echo "  - 2.4G SSID: 铁哥中继器-2.4G | 信道: 自动"
 echo "  - 强制40MHz + 256-QAM + MU-MIMO"
 echo "  - 2.4G 功率: 驱动自动配置"
