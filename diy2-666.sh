@@ -18,8 +18,7 @@ config system
     option timezone 'CST-8'
 
 config timeserver 'ntp'
-    option enabled '0'
-    option enable_server '0'
+    option enabled '1'
 EOF
 echo "✅ 主机名: WiFirepeater"
 
