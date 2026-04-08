@@ -43,9 +43,8 @@ cp "$MAC80211_SH" "$MAC80211_SH.bak"
 echo "找到无线配置文件: $MAC80211_SH"
 
 # ------------------------------------------------------------
-# 修改2: 2.4G 信道改为 auto（覆盖 get_band_defaults 获取的值）
+# 修改1: 2.4G 信道改为 auto
 # ------------------------------------------------------------
-# 在 htmode 行后面添加一行来覆盖 channel 变量
 sed -i '/set wireless.radio${devidx}.htmode=$htmode/a\
 			# 2.4G 信道覆盖为 auto\
 			if [ "${mode_band}" = "2g" ]; then\
@@ -53,9 +52,8 @@ sed -i '/set wireless.radio${devidx}.htmode=$htmode/a\
 			fi' "$MAC80211_SH"
 
 # ------------------------------------------------------------
-# 修改3: SSID 修改（在 ssid 行后面添加条件判断）
+# 修改2: SSID 修改
 # ------------------------------------------------------------
-# 先找到 ssid 行，在其后面添加条件判断来覆盖
 sed -i '/set wireless.default_radio${devidx}.ssid=ImmortalWrt/a\
 			# 根据频段设置不同的 SSID\
 			if [ "${mode_band}" = "2g" ]; then\
@@ -64,13 +62,12 @@ sed -i '/set wireless.default_radio${devidx}.ssid=ImmortalWrt/a\
 				set wireless.default_radio${devidx}.ssid="铁哥中继器-5G"\
 			fi' "$MAC80211_SH"
 
-# 注释掉原来的 ssid 行（让它失效）
+# 注释掉原来的 ssid 行
 sed -i 's/set wireless.default_radio${devidx}.ssid=ImmortalWrt/# set wireless.default_radio${devidx}.ssid=ImmortalWrt/g' "$MAC80211_SH"
 
 # ------------------------------------------------------------
-# 修改4: 2.4G 专属配置（noscan、HE40、ldpc、mu_beamformer）
+# 修改3: 2.4G + 5G 配置（合并，避免互相覆盖）
 # ------------------------------------------------------------
-# 在 htmode 行后面添加 2.4G 的额外配置
 sed -i '/set wireless.radio${devidx}.htmode=$htmode/a\
 			# 2.4G 专属配置（802.11ax / Wi-Fi 6）\
 			if [ "${mode_band}" = "2g" ]; then\
@@ -78,13 +75,7 @@ sed -i '/set wireless.radio${devidx}.htmode=$htmode/a\
 				set wireless.radio${devidx}.htmode="HE40"\
 				set wireless.radio${devidx}.ldpc=1\
 				set wireless.radio${devidx}.mu_beamformer=1\
-			fi' "$MAC80211_SH"
-
-# ------------------------------------------------------------
-# 修改5: 5G MU-MIMO（独立配置）
-# ------------------------------------------------------------
-# 在 htmode 行后面添加 5G 的 MU-MIMO 配置
-sed -i '/set wireless.radio${devidx}.htmode=$htmode/a\
+			fi\
 			# 5G MU-MIMO\
 			if [ "${mode_band}" = "5g" ]; then\
 				set wireless.radio${devidx}.mu_beamformer=1\
@@ -97,7 +88,7 @@ echo "========================================="
 
 VERIFY_FAILED=0
 
-# 验证2: 2.4G 信道 auto
+# 验证 2.4G 信道 auto
 if grep -q 'set wireless.radio${devidx}.channel="auto"' "$MAC80211_SH"; then
     echo "  ✓ 2.4G 信道: auto"
 else
@@ -105,7 +96,7 @@ else
     VERIFY_FAILED=1
 fi
 
-# 验证3: SSID
+# 验证 SSID
 if grep -q '铁哥中继器-2.4G' "$MAC80211_SH"; then
     echo "  ✓ 2.4G SSID: 铁哥中继器-2.4G"
 else
@@ -120,7 +111,7 @@ else
     VERIFY_FAILED=1
 fi
 
-# 验证4: 2.4G 强制40MHz
+# 验证 2.4G 强制40MHz
 if grep -q 'set wireless.radio${devidx}.noscan=1' "$MAC80211_SH"; then
     echo "  ✓ 2.4G 强制40MHz (noscan=1)"
 else
@@ -128,7 +119,7 @@ else
     VERIFY_FAILED=1
 fi
 
-# 验证5: 2.4G AX模式
+# 验证 2.4G AX模式
 if grep -q 'set wireless.radio${devidx}.htmode="HE40"' "$MAC80211_SH"; then
     echo "  ✓ 2.4G 模式: 802.11ax (HE40)"
 else
@@ -136,7 +127,7 @@ else
     VERIFY_FAILED=1
 fi
 
-# 验证6: 2.4G 256-QAM
+# 验证 2.4G 256-QAM
 if grep -q 'set wireless.radio${devidx}.ldpc=1' "$MAC80211_SH"; then
     echo "  ✓ 2.4G 256-QAM (ldpc=1)"
 else
@@ -144,7 +135,7 @@ else
     VERIFY_FAILED=1
 fi
 
-# 验证7: MU-MIMO（2.4G 和 5G）
+# 验证 MU-MIMO
 if grep -q 'set wireless.radio${devidx}.mu_beamformer=1' "$MAC80211_SH"; then
     echo "  ✓ MU-MIMO 已配置"
 else
@@ -152,7 +143,7 @@ else
     VERIFY_FAILED=1
 fi
 
-# 验证8: 确保 5G 没有被错误设置 noscan 或 HE40
+# 验证 5G 没有被错误设置 noscan 或 HE40
 if grep -A10 'mode_band" = "5g"' "$MAC80211_SH" | grep -q 'noscan'; then
     echo "  ✗ 错误: 5G 被错误设置了 noscan"
     VERIFY_FAILED=1
