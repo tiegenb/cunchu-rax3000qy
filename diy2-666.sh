@@ -39,29 +39,21 @@ fi
 
 cp "$MAC80211_SH" "$MAC80211_SH.bak"
 
-# ---------- 1. SSID 修改（2.4G 和 5G）----------
-# 直接替换默认的 ssid=ImmortalWrt 为固定名称
+## ---------- 无线配置修改（统一处理）----------
+# 1. SSID 修改
 sed -i 's/set wireless.default_radio${devidx}.ssid=ImmortalWrt/set wireless.default_radio${devidx}.ssid=铁哥中继器/g' "$MAC80211_SH"
 
-# ---------- 2. 2.4G 模式改为 HE40 ----------
-# 直接修改 htmode 变量的赋值逻辑
-sed -i '/case "$mode_band" in/,/esac/ {
-    /2g)/ s/htmode="[^"]*"/htmode="HE40"/
-    /5g)/ s/htmode="[^"]*"/htmode=""/
-}' "$MAC80211_SH"
-
-# ---------- 3. 2.4G 强制40MHz (noscan=1) ----------
-# 在 uci batch 块内，htmode 设置之后添加 noscan
-sed -i '/set wireless.radio${devidx}.htmode=/a\
-			[ "$mode_band" = "2g" ] && set wireless.radio${devidx}.noscan=1' "$MAC80211_SH"
-
-# ---------- 4. 2.4G 256-QAM (ldpc=1) ----------
-sed -i '/set wireless.radio${devidx}.htmode=/a\
-			[ "$mode_band" = "2g" ] && set wireless.radio${devidx}.ldpc=1' "$MAC80211_SH"
-
-# ---------- 5. MU-MIMO（双频都启用）----------
-sed -i '/set wireless.radio${devidx}.htmode=/a\
-			set wireless.radio${devidx}.mu_beamformer=1' "$MAC80211_SH"
+# 2. 2.4G & 5G 专属配置（在 commit 前用 uci set 覆盖）
+sed -i '/uci -q commit wireless/i\
+		# 2.4G 强制配置（HE40 + 强制40MHz + 256-QAM）\
+		if [ "$mode_band" = "2g" ]; then\
+			uci set wireless.radio${devidx}.htmode="HE40"\
+			uci set wireless.radio${devidx}.noscan=1\
+			uci set wireless.radio${devidx}.ldpc=1\
+		fi\
+		# MU-MIMO 双频启用\
+		uci set wireless.radio${devidx}.mu_beamformer=1\
+' "$MAC80211_SH"
 
 echo "✅ 无线配置修改完成"
 
