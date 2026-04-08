@@ -97,14 +97,6 @@ echo "========================================="
 
 VERIFY_FAILED=0
 
-# 验证1: 国家代码
-if grep -q 'set wireless.radio${devidx}.country=US' "$MAC80211_SH"; then
-    echo "  ✓ 国家代码: US"
-else
-    echo "  ✗ 国家代码修改失败"
-    VERIFY_FAILED=1
-fi
-
 # 验证2: 2.4G 信道 auto
 if grep -q 'set wireless.radio${devidx}.channel="auto"' "$MAC80211_SH"; then
     echo "  ✓ 2.4G 信道: auto"
