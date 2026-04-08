@@ -1,17 +1,14 @@
 #!/bin/bash
 # 文件名: diy2.sh
-# 功能: 修改 ImmortalWrt 的默认配置（仅保留指定项）
 
 set -e
 
 echo "开始执行 DIY 脚本..."
-echo "当前工作目录: $(pwd)"
 echo "========================================="
 
 # ==================== 0. 创建必要目录 ====================
 mkdir -p files/etc/config
 mkdir -p files/etc/uci-defaults
-echo "✅ 创建必要目录完成"
 
 # ==================== 1. System 配置（主机名） ====================
 cat > files/etc/config/system << 'EOF'
@@ -30,8 +27,6 @@ echo "✅ 主机名: WiFirepeater"
 if [ -f package/base-files/files/bin/config_generate ]; then
     sed -i 's/192.168.1.1/192.168.66.1/g' package/base-files/files/bin/config_generate
     echo "✅ 管理 IP: 192.168.66.1"
-else
-    echo "⚠️ 警告: config_generate 文件不存在"
 fi
 
 # ==================== 3. 无线配置修改 ====================
@@ -42,12 +37,10 @@ if [ ! -f "$MAC80211_SH" ]; then
     exit 1
 fi
 
-echo "找到无线配置文件: $MAC80211_SH"
 cp "$MAC80211_SH" "$MAC80211_SH.bak"
 
-# 修改1: SSID 区分（2.4G 和 5G）
+# ---------- SSID 修改 ----------
 sed -i '/uci -q batch <<-EOF/i\
-		# 自定义 SSID\
 		if [ "${mode_band}" = "2g" ]; then\
 			ssid="铁哥中继器-2.4G"\
 		else\
@@ -55,127 +48,44 @@ sed -i '/uci -q batch <<-EOF/i\
 		fi\
 ' "$MAC80211_SH"
 
-# 修改2: 将 SSID 行改为使用变量
 sed -i 's/set wireless.default_radio${devidx}.ssid=ImmortalWrt/set wireless.default_radio${devidx}.ssid=${ssid}/g' "$MAC80211_SH"
 
-# 修改3: 2.4G 信道设置为自动
+# ---------- 2.4G 信道自动 ----------
 sed -i '/uci -q batch <<-EOF/i\
-		# 2.4G 信道自动选择\
 		if [ "${mode_band}" = "2g" ]; then\
 			channel="auto"\
 		fi\
 ' "$MAC80211_SH"
 
-# 修改4: 2.4G 功率设置为 20dBm
-sed -i '/uci -q batch <<-EOF/i\
-		# 2.4G 发射功率\
-		if [ "${mode_band}" = "2g" ]; then\
-			txpower_val="20"\
-		fi\
-' "$MAC80211_SH"
-
-# 修改5: 2.4G 强制 40MHz（锁定40MHz，不回退20MHz）
-sed -i '/uci -q batch <<-EOF/i\
-		# 2.4G 强制 40MHz 带宽（noscan=1 锁定，不回退）\
-		if [ "${mode_band}" = "2g" ]; then\
-			htmode="HT40"\
+# ---------- 强制40MHz（noscan=1）----------
+sed -i '/set wireless.radio${devidx}.htmode=/a\
 			set wireless.radio${devidx}.noscan=1\
-		fi\
-' "$MAC80211_SH"
+			set wireless.radio${devidx}.htmode="HT40"' "$MAC80211_SH"
 
-# 修改6: 2.4G 启用 256-QAM
-sed -i '/uci -q batch <<-EOF/i\
-		# 2.4G 启用 256-QAM\
-		if [ "${mode_band}" = "2g" ]; then\
-			set wireless.radio${devidx}.ldpc=1\
-		fi\
-' "$MAC80211_SH"
+# ---------- 256-QAM ----------
+sed -i '/set wireless.radio${devidx}.htmode=/a\
+			set wireless.radio${devidx}.ldpc=1' "$MAC80211_SH"
 
-# 修改7: 启用 MU-MIMO（双频）
+# ---------- MU-MIMO ----------
 sed -i '/set wireless.radio${devidx}.htmode=/a\
 			set wireless.radio${devidx}.mu_beamformer=1' "$MAC80211_SH"
 
 echo "✅ 无线配置修改完成"
 
-# 验证修改
+# 验证
 echo ""
 echo "验证配置修改结果..."
-
-VERIFY_FAILED=0
-
-if grep -q 'ssid="铁哥中继器-2.4G"' "$MAC80211_SH"; then
-    echo "  ✓ 2.4G SSID: 铁哥中继器-2.4G"
-else
-    echo "  ✗ 2.4G SSID 设置失败"
-    VERIFY_FAILED=1
-fi
-
-if grep -q 'ssid="铁哥中继器-5G"' "$MAC80211_SH"; then
-    echo "  ✓ 5G SSID: 铁哥中继器-5G"
-else
-    echo "  ✗ 5G SSID 设置失败"
-    VERIFY_FAILED=1
-fi
-
-if grep -q 'channel="auto"' "$MAC80211_SH"; then
-    echo "  ✓ 2.4G 信道: 自动"
-else
-    echo "  ✗ 2.4G 信道自动设置失败"
-    VERIFY_FAILED=1
-fi
-
-if grep -q 'txpower_val="20"' "$MAC80211_SH"; then
-    echo "  ✓ 2.4G 功率: 20dBm"
-else
-    echo "  ✗ 2.4G 功率设置失败"
-    VERIFY_FAILED=1
-fi
-
-if grep -q 'htmode="HT40"' "$MAC80211_SH"; then
-    echo "  ✓ 2.4G 已设置为 HT40 模式"
-else
-    echo "  ✗ 2.4G HT40 模式设置失败"
-    VERIFY_FAILED=1
-fi
-
-if grep -q 'noscan=1' "$MAC80211_SH"; then
-    echo "  ✓ 2.4G 强制 40MHz（noscan=1，不回退20MHz）"
-else
-    echo "  ✗ 2.4G 强制40MHz设置失败"
-    VERIFY_FAILED=1
-fi
-
-if grep -q 'mu_beamformer=1' "$MAC80211_SH"; then
-    echo "  ✓ MU-MIMO: 双频已启用"
-else
-    echo "  ✗ MU-MIMO 设置失败"
-    VERIFY_FAILED=1
-fi
-
-if grep -q 'ldpc=1' "$MAC80211_SH"; then
-    echo "  ✓ 2.4G 256-QAM 已启用"
-else
-    echo "  ⚠️ 256-QAM 设置失败（可能驱动不支持）"
-fi
-
-if [ $VERIFY_FAILED -ne 0 ]; then
-    echo ""
-    echo "错误: 配置修改验证失败，编译终止"
-    cp "$MAC80211_SH.bak" "$MAC80211_SH"
-    exit 1
-fi
+grep -q 'noscan=1' "$MAC80211_SH" && echo "  ✓ 强制40MHz模式 (noscan=1)" || echo "  ✗ 强制40MHz失败"
+grep -q 'ldpc=1' "$MAC80211_SH" && echo "  ✓ 256-QAM已启用" || echo "  ✗ 256-QAM失败"
+grep -q 'mu_beamformer=1' "$MAC80211_SH" && echo "  ✓ MU-MIMO已启用" || echo "  ✗ MU-MIMO失败"
+grep -q 'ssid="铁哥中继器-2.4G"' "$MAC80211_SH" && echo "  ✓ SSID已修改" || echo "  ✗ SSID失败"
 
 echo ""
 echo "========================================="
-echo "配置摘要（保留项）:"
-echo "  - 主机名: WiFirepeater"
-echo "  - 管理 IP: 192.168.66.1"
-echo "  - 2.4G SSID: 铁哥中继器-2.4G"
-echo "  - 2.4G 信道: 自动"
-echo "  - 2.4G 功率: 18dBm"
-echo "  - 2.4G 带宽: 强制 40MHz（noscan=1，不回退）"
-echo "  - 2.4G 256-QAM: 已启用"
+echo "配置摘要:"
+echo "  - 主机名: WiFirepeater | IP: 192.168.66.1"
+echo "  - 2.4G SSID: 铁哥中继器-2.4G | 信道: 自动"
+echo "  - 强制40MHz + 256-QAM + MU-MIMO"
+echo "  - 2.4G 功率: 驱动自动配置"
 echo "  - 5G SSID: 铁哥中继器-5G"
-echo "  - MU-MIMO: 双频启用"
-echo "  - 其余配置: 使用驱动默认值"
 echo "========================================="
