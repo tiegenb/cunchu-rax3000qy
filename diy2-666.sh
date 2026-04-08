@@ -45,6 +45,10 @@ sed -i 's/set wireless.default_radio${devidx}.ssid=ImmortalWrt/set wireless.defa
 
 # 2. 2.4G & 5G 专属配置（在 commit 前用 uci set 覆盖）
 sed -i '/uci -q commit wireless/i\
+		# 2.4G 信道自动\
+		if [ "$mode_band" = "2g" ]; then\
+			uci set wireless.radio${devidx}.channel="auto"\
+		fi\
 		# 2.4G 强制配置（HE40 + 强制40MHz + 256-QAM）\
 		if [ "$mode_band" = "2g" ]; then\
 			uci set wireless.radio${devidx}.htmode="HE40"\
@@ -57,20 +61,24 @@ sed -i '/uci -q commit wireless/i\
 
 echo "✅ 无线配置修改完成"
 
-# 验证
+# 验证（简化版）
 echo ""
 echo "验证配置修改结果..."
 
-grep -q 'htmode="HE40"' "$MAC80211_SH" && echo "  ✓ 2.4G 模式: HE40" || echo "  ✗ 2.4G HE40 失败"
-grep -q 'noscan=1' "$MAC80211_SH" && echo "  ✓ 2.4G 强制40MHz" || echo "  ✗ 强制40MHz 失败"
-grep -q 'ldpc=1' "$MAC80211_SH" && echo "  ✓ 2.4G 256-QAM" || echo "  ✗ 256-QAM 失败"
-grep -q 'mu_beamformer=1' "$MAC80211_SH" && echo "  ✓ MU-MIMO" || echo "  ✗ MU-MIMO 失败"
+# 核心检查（失败即退出）
+grep -q 'uci set wireless.radio${devidx}.htmode="HE40"' "$MAC80211_SH" || { echo "✗ HE40 失败"; exit 1; }
+grep -q 'uci set wireless.radio${devidx}.noscan=1' "$MAC80211_SH" || { echo "✗ noscan 失败"; exit 1; }
+grep -q 'uci set wireless.radio${devidx}.ldpc=1' "$MAC80211_SH" || { echo "✗ LDPC 失败"; exit 1; }
+grep -q 'uci set wireless.radio${devidx}.channel="auto"' "$MAC80211_SH" || { echo "✗ 信道自动 失败"; exit 1; }
+grep -q 'uci set wireless.radio${devidx}.mu_beamformer=1' "$MAC80211_SH" || { echo "✗ MU-MIMO 失败"; exit 1; }
+grep -q 'ssid=铁哥中继器' "$MAC80211_SH" || { echo "✗ SSID 失败"; exit 1; }
+
+echo "✓ 所有配置验证通过"
 
 echo ""
 echo "========================================="
 echo "配置摘要:"
 echo "  - 主机名: WiFirepeater | IP: 192.168.66.1"
-echo "  - 2.4G: 铁哥中继器 | HE40 | 强制40MHz | 256-QAM | MU-MIMO"
+echo "  - 2.4G: 铁哥中继器 | 信道自动 | HE40 | 强制40MHz | 256-QAM | MU-MIMO"
 echo "  - 5G: 铁哥中继器 | MU-MIMO"
-echo "  - 其余配置: 驱动自动"
 echo "========================================="
