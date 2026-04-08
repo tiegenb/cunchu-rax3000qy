@@ -5,7 +5,7 @@
 # 说明：使用 GitHub Actions 构建 OpenWrt
 #
 
-name: 构建 OpenWrt-80211.sh直接修改版
+name: 构建 80211.sh直接修改默认配置
 
 on:
   repository_dispatch:
