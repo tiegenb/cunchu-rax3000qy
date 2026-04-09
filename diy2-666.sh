@@ -29,17 +29,7 @@ if [ -f package/base-files/files/bin/config_generate ]; then
     echo "✅ 管理 IP: 192.168.66.1"
 fi
 
-# ==================== 3. 无线配置修改 ====================
-MAC80211_SH="package/kernel/mac80211/files/lib/wifi/mac80211.sh"
-
-if [ ! -f "$MAC80211_SH" ]; then
-    echo "错误: 找不到 $MAC80211_SH"
-    exit 1
-fi
-
-cp "$MAC80211_SH" "$MAC80211_SH.bak"
-
-## ---------- 无线配置修改（统一处理）----------
+# ---------- 无线配置修改（统一处理）----------
 # 1. SSID 修改（根据频段区分）
 sed -i '/set wireless.default_radio${devidx}.ssid=ImmortalWrt/d' "$MAC80211_SH"
 sed -i '/uci -q commit wireless/i\
@@ -57,10 +47,9 @@ sed -i '/uci -q commit wireless/i\
 		if [ "$mode_band" = "2g" ]; then\
 			uci set wireless.radio${devidx}.channel="auto"\
 		fi\
-		# 2.4G 配置（HE40 + 256-QAM）\
+		# 2.4G 配置（HE40）\
 		if [ "$mode_band" = "2g" ]; then\
 			uci set wireless.radio${devidx}.htmode="HE40"\
-			uci set wireless.radio${devidx}.ldpc=1\
 		fi\
 		# MU-MIMO 双频启用\
 		uci set wireless.radio${devidx}.mu_beamformer=1\
@@ -68,23 +57,20 @@ sed -i '/uci -q commit wireless/i\
 
 echo "✅ 无线配置修改完成"
 
-# 验证（简化版）
+# 验证
 echo ""
 echo "验证配置修改结果..."
-
 grep -q 'uci set wireless.default_radio${devidx}.ssid="铁哥中继器-2.4G"' "$MAC80211_SH" || { echo "✗ 2.4G SSID 失败"; exit 1; }
 grep -q 'uci set wireless.default_radio${devidx}.ssid="铁哥中继器-5G"' "$MAC80211_SH" || { echo "✗ 5G SSID 失败"; exit 1; }
 grep -q 'uci set wireless.radio${devidx}.htmode="HE40"' "$MAC80211_SH" || { echo "✗ HE40 失败"; exit 1; }
-grep -q 'uci set wireless.radio${devidx}.ldpc=1' "$MAC80211_SH" || { echo "✗ LDPC 失败"; exit 1; }
 grep -q 'uci set wireless.radio${devidx}.channel="auto"' "$MAC80211_SH" || { echo "✗ 信道自动 失败"; exit 1; }
 grep -q 'uci set wireless.radio${devidx}.mu_beamformer=1' "$MAC80211_SH" || { echo "✗ MU-MIMO 失败"; exit 1; }
-
 echo "✓ 所有配置验证通过"
 
 echo ""
 echo "========================================="
 echo "配置摘要:"
 echo "  - 主机名: WiFirepeater | IP: 192.168.66.1"
-echo "  - 2.4G: 铁哥中继器-2.4G | 信道自动 | HE40 | 256-QAM | MU-MIMO"
+echo "  - 2.4G: 铁哥中继器-2.4G | 信道自动 | HE40 | MU-MIMO"
 echo "  - 5G: 铁哥中继器-5G | MU-MIMO"
 echo "========================================="
