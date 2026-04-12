@@ -1,0 +1,244 @@
+#!/bin/bash
+# 文件名: diy2.sh
+# 功能: OpenWrt 编译个性化配置脚本
+
+set -e
+
+echo "========================================="
+echo "开始执行 OpenWrt DIY 配置脚本"
+echo "========================================="
+
+# ==================== 0. 更新 feeds（必须最先执行） ====================
+echo ""
+echo "=== 更新 feeds ==="
+./scripts/feeds update -a
+./scripts/feeds install -a
+echo "✓ feeds 更新完成"
+
+# ==================== 1. 创建必要目录 ====================
+echo ""
+echo "=== 创建必要目录 ==="
+mkdir -p files/etc/config
+mkdir -p files/etc/uci-defaults
+mkdir -p files/etc/rc.d
+echo "✓ 目录创建完成"
+
+# ==================== 2. 修改默认 IP ====================
+echo ""
+echo "=== 修改默认管理 IP ==="
+CONFIG_GENERATE="package/base-files/files/bin/config_generate"
+if [ -f "$CONFIG_GENERATE" ]; then
+    # 备份原文件
+    cp "$CONFIG_GENERATE" "${CONFIG_GENERATE}.bak"
+    # 修改 IP
+    sed -i 's/192.168.1.1/192.168.66.1/g' "$CONFIG_GENERATE"
+    echo "✓ 管理 IP 已修改为: 192.168.66.1"
+    
+    # 验证修改
+    if grep -q "192.168.66.1" "$CONFIG_GENERATE"; then
+        echo "✓ IP 修改验证成功"
+    else
+        echo "✗ IP 修改验证失败"
+        exit 1
+    fi
+else
+    echo "✗ 未找到 config_generate 文件"
+    exit 1
+fi
+
+# ==================== 3. 设置主机名 ====================
+echo ""
+echo "=== 设置主机名 ==="
+cat > files/etc/config/system << 'EOF'
+config system
+    option hostname 'WiFirepeater'
+    option zonename 'Asia/Shanghai'
+    option timezone 'CST-8'
+
+config timeserver 'ntp'
+    option enabled '1'
+    option enable_server '0'
+    list server 'ntp.aliyun.com'
+    list server 'pool.ntp.org'
+
+EOF
+echo "✓ 主机名已设置为: WiFirepeater"
+
+# ==================== 4. 修复 hostapd ap_isolate 问题 ====================
+echo ""
+echo "=== 修复 hostapd ap_isolate 问题 ==="
+
+# 查找 hostapd.sh 文件（支持多种路径）
+HOSTAPD_SH=""
+if [ -f "package/network/services/hostapd/files/hostapd.sh" ]; then
+    HOSTAPD_SH="package/network/services/hostapd/files/hostapd.sh"
+elif [ -f "feeds/network/services/hostapd/files/hostapd.sh" ]; then
+    HOSTAPD_SH="feeds/network/services/hostapd/files/hostapd.sh"
+else
+    # 使用 find 命令搜索
+    HOSTAPD_SH=$(find . -path "*/services/hostapd/files/hostapd.sh" 2>/dev/null | head -1)
+fi
+
+if [ -n "$HOSTAPD_SH" ] && [ -f "$HOSTAPD_SH" ]; then
+    echo "找到文件: $HOSTAPD_SH"
+    
+    # 备份原文件
+    cp "$HOSTAPD_SH" "${HOSTAPD_SH}.bak"
+    
+    # 显示修改前的状态
+    echo "修改前 ap_isolate 相关行:"
+    grep -n "ap_isolate" "$HOSTAPD_SH" || echo "（当前无 ap_isolate 配置）"
+    
+    # 注释掉 append bss_conf "ap_isolate=" 这一行
+    sed -i '/append bss_conf "ap_isolate=/s/^/# /' "$HOSTAPD_SH"
+    
+    # 显示修改后的状态
+    echo "修改后 ap_isolate 相关行:"
+    grep -n "ap_isolate" "$HOSTAPD_SH" || echo "（已注释或移除）"
+    
+    # 验证修改
+    if grep -q '#.*append bss_conf "ap_isolate=' "$HOSTAPD_SH"; then
+        echo "✓ hostapd ap_isolate 修复成功"
+    else
+        echo "⚠ 警告: 未能通过 sed 修改，尝试备用方法..."
+        # 备用方法：直接删除该行
+        sed -i '/append bss_conf "ap_isolate=/d' "$HOSTAPD_SH"
+        if ! grep -q "append bss_conf \"ap_isolate=" "$HOSTAPD_SH"; then
+            echo "✓ 已删除 ap_isolate 配置行"
+        else
+            echo "✗ hostapd 修改失败"
+            exit 1
+        fi
+    fi
+else
+    echo "⚠ 警告: 未找到 hostapd.sh 文件，跳过修复"
+    echo "搜索到的相关文件:"
+    find . -name "hostapd.sh" 2>/dev/null | head -5
+fi
+
+# ==================== 5. 修改无线配置 ====================
+echo ""
+echo "=== 修改无线配置 ==="
+
+# 查找 mac80211.sh 文件
+MAC80211_SH=""
+if [ -f "package/kernel/mac80211/files/lib/wifi/mac80211.sh" ]; then
+    MAC80211_SH="package/kernel/mac80211/files/lib/wifi/mac80211.sh"
+elif [ -f "package/network/services/hostapd/files/mac80211.sh" ]; then
+    MAC80211_SH="package/network/services/hostapd/files/mac80211.sh"
+else
+    MAC80211_SH=$(find . -name "mac80211.sh" -path "*/lib/wifi/*" 2>/dev/null | head -1)
+fi
+
+if [ -n "$MAC80211_SH" ] && [ -f "$MAC80211_SH" ]; then
+    echo "找到文件: $MAC80211_SH"
+    
+    # 备份原文件
+    cp "$MAC80211_SH" "${MAC80211_SH}.bak"
+    
+    # 1. 删除默认 SSID 设置
+    sed -i '/set wireless.default_radio${devidx}.ssid=ImmortalWrt/d' "$MAC80211_SH"
+    
+    # 2. 添加自定义 SSID（根据频段区分）
+    sed -i '/uci -q commit wireless/i\
+		# 自定义 SSID（根据频段区分）\
+		if [ "$mode_band" = "2g" ]; then\
+			uci set wireless.default_radio${devidx}.ssid="铁哥中继器-2.4G"\
+		else\
+			uci set wireless.default_radio${devidx}.ssid="铁哥中继器-5G"\
+		fi\
+' "$MAC80211_SH"
+    
+    # 3. 添加无线高级配置
+    sed -i '/uci -q commit wireless/i\
+		# 2.4G 信道自动\
+		if [ "$mode_band" = "2g" ]; then\
+			uci set wireless.radio${devidx}.channel="auto"\
+		fi\
+		# 2.4G 配置（HE40）\
+		if [ "$mode_band" = "2g" ]; then\
+			uci set wireless.radio${devidx}.htmode="HE40"\
+		fi\
+		# MU-MIMO 双频启用\
+		uci set wireless.radio${devidx}.mu_beamformer=1\
+' "$MAC80211_SH"
+    
+    echo "✓ 无线配置修改完成"
+    
+    # 验证修改
+    echo "验证无线配置..."
+    if grep -q 'uci set wireless.default_radio${devidx}.ssid="铁哥中继器-2.4G"' "$MAC80211_SH"; then
+        echo "✓ 2.4G SSID 配置成功"
+    else
+        echo "⚠ 2.4G SSID 配置可能失败"
+    fi
+    
+    if grep -q 'uci set wireless.default_radio${devidx}.ssid="铁哥中继器-5G"' "$MAC80211_SH"; then
+        echo "✓ 5G SSID 配置成功"
+    else
+        echo "⚠ 5G SSID 配置可能失败"
+    fi
+    
+    if grep -q 'uci set wireless.radio${devidx}.htmode="HE40"' "$MAC80211_SH"; then
+        echo "✓ HE40 配置成功"
+    else
+        echo "⚠ HE40 配置可能失败"
+    fi
+else
+    echo "⚠ 警告: 未找到 mac80211.sh 文件，跳过无线配置修改"
+fi
+
+# ==================== 6. 创建开机备用修复脚本（双重保险） ====================
+echo ""
+echo "=== 创建开机备用修复脚本 ==="
+
+cat > files/etc/uci-defaults/99-fix-ap-isolate << 'EOF'
+#!/bin/sh
+# 备用方案：开机后再次检查并修复 ap_isolate
+# 如果 hostapd 配置中仍然有 ap_isolate=1，强制改为 0
+
+sleep 3
+
+# 检查并修复所有 hostapd 配置文件
+if ls /var/run/hostapd-phy*.conf >/dev/null 2>&1; then
+    if grep -q "ap_isolate=1" /var/run/hostapd-phy*.conf 2>/dev/null; then
+        sed -i 's/ap_isolate=1/ap_isolate=0/g' /var/run/hostapd-phy*.conf 2>/dev/null
+        /etc/init.d/hostapd restart 2>/dev/null
+        logger -t "fix-ap-isolate" "已修复 ap_isolate 配置 (ap_isolate=1 -> 0)"
+        echo "fix-ap-isolate: ap_isolate 已修复" > /dev/console 2>/dev/null
+    fi
+fi
+
+exit 0
+EOF
+
+chmod +x files/etc/uci-defaults/99-fix-ap-isolate
+echo "✓ 开机备用修复脚本已创建"
+
+# ==================== 7. 创建版本标识文件 ====================
+echo ""
+echo "=== 创建版本标识 ==="
+
+cat > files/etc/version.info << EOF
+BUILD_DATE=$(date +"%Y-%m-%d %H:%M:%S")
+BUILD_BY=GitHub-Actions
+DEVICE=WiFirepeater
+FEATURES=ap-isolate-fixed,ip-192.168.66.1
+EOF
+echo "✓ 版本标识已创建"
+
+# ==================== 8. 最终验证 ====================
+echo ""
+echo "========================================="
+echo "DIY 配置脚本执行完成！"
+echo "========================================="
+echo ""
+echo "配置摘要:"
+echo "  - 管理 IP: 192.168.66.1"
+echo "  - 主机名: WiFirepeater"
+echo "  - 2.4G SSID: 铁哥中继器-2.4G"
+echo "  - 5G SSID: 铁哥中继器-5G"
+echo "  - ap_isolate 修复: 已启用"
+echo "  - 开机备用脚本: 已创建"
+echo ""
+echo "========================================="
